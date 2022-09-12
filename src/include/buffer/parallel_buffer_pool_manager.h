@@ -21,6 +21,12 @@ namespace bustub {
 
 class ParallelBufferPoolManager : public BufferPoolManager {
  public:
+
+   
+   size_t num_instances_;
+   size_t start_index;
+   size_t poolsize_;
+   BufferPoolManagerInstance** multibufferpool;
   /**
    * Creates a new ParallelBufferPoolManager.
    * @param num_instances the number of individual BufferPoolManagerInstances to store

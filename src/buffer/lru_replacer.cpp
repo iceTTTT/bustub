@@ -11,19 +11,76 @@
 //===----------------------------------------------------------------------===//
 
 #include "buffer/lru_replacer.h"
-
+#include<stack>
 namespace bustub {
 
-LRUReplacer::LRUReplacer(size_t num_pages) {}
+LRUReplacer::LRUReplacer(size_t num_pages):head_(new dlist),rear_(new dlist),lrumap_(),size_(num_pages),in_size(0) 
+{
+    head_->next=rear_;
+    rear_->prev=head_;
+}
 
-LRUReplacer::~LRUReplacer() = default;
+LRUReplacer::~LRUReplacer(){
+  std::stack<dlist* > dstack;
+  head_=head_->next;
+  while(head_!=rear_)
+     dstack.push(head_);
+  while(!dstack.empty())
+  {
+      delete dstack.top();
+      dstack.pop();
+  }
+};
 
-auto LRUReplacer::Victim(frame_id_t *frame_id) -> bool { return false; }
+auto LRUReplacer::Victim(frame_id_t *frame_id) -> bool 
+{ 
+    if(in_size>0)
+    {
+      dlist* target=rear_->prev;
+      *frame_id=target->frame;
+      ddelete(target);
+      return true;
+    }
+    
+    return false;
+}
 
-void LRUReplacer::Pin(frame_id_t frame_id) {}
+void LRUReplacer::Pin(frame_id_t frame_id) 
+{
+   dlist* target=lrumap_[frame_id];
+   ddelete(target);
+}
 
-void LRUReplacer::Unpin(frame_id_t frame_id) {}
+void LRUReplacer::Unpin(frame_id_t frame_id) 
+{     
+    //make new node , hash
+      dlist* newnode=new dlist;
+      newnode->frame=frame_id;
+      lrumap_[frame_id]=newnode;
+    // insert in the head
+     insert(head_,newnode);
 
-auto LRUReplacer::Size() -> size_t { return 0; }
+}
+void LRUReplacer::insert(dlist* pos,dlist* target)
+{
+  pos->next->prev=target;
+  target->next=pos->next;
+  target->prev=pos;
+  pos->next=target;
+
+  //increment size.
+  in_size++;
+}
+
+void LRUReplacer::ddelete(dlist* target)
+{
+ target->prev->next=target->next;
+ target->next->prev=target->prev;
+ 
+ delete target;
+ //decrement size.
+ in_size--;
+}
+auto LRUReplacer::Size() -> size_t { return in_size; }
 
 }  // namespace bustub

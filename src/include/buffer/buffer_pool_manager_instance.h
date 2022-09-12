@@ -64,6 +64,7 @@ class BufferPoolManagerInstance : public BufferPoolManager {
    * @param page_id id of page to be fetched
    * @return the requested page
    */
+  friend class ParallelBufferPoolManager;
   auto FetchPgImp(page_id_t page_id) -> Page * override;
 
   /**
