@@ -52,17 +52,21 @@ void LRUReplacer::Pin(frame_id_t frame_id)
 }
 
 void LRUReplacer::Unpin(frame_id_t frame_id) 
-{     
+{     if(in_size==size_)
+        return ;
     //make new node , hash
+      if(lrumap_.find(frame_id)!=lrumap_.end())
+        return ;
       dlist* newnode=new dlist;
       newnode->frame=frame_id;
       lrumap_[frame_id]=newnode;
     // insert in the head
-     insert(head_,newnode);
+      insert(head_,newnode);
 
 }
 void LRUReplacer::insert(dlist* pos,dlist* target)
 {
+
   pos->next->prev=target;
   target->next=pos->next;
   target->prev=pos;
