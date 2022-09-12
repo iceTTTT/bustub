@@ -20,14 +20,14 @@ ParallelBufferPoolManager::ParallelBufferPoolManager(size_t num_instances, size_
                                                       {
   // Allocate and create individual BufferPoolManagerInstances
   multibufferpool=new BufferPoolManagerInstance*[num_instances_];
-  for(int i=0;i<num_instances_;i++)
+  for(size_t i=0;i<num_instances_;i++)
     multibufferpool[i]=new BufferPoolManagerInstance(poolsize_,num_instances_,i,disk_manager,log_manager);
 }
 
 // Update constructor to destruct all BufferPoolManagerInstances and deallocate any associated memory
 ParallelBufferPoolManager::~ParallelBufferPoolManager() 
 {
-  for(int i=0;i<num_instances_;i++)
+  for(size_t i=0;i<num_instances_;i++)
      delete multibufferpool[i];
   delete []multibufferpool;
 };
@@ -46,10 +46,7 @@ auto ParallelBufferPoolManager::GetBufferPoolManager(page_id_t page_id) -> Buffe
 auto ParallelBufferPoolManager::FetchPgImp(page_id_t page_id) -> Page * {
   // Fetch page for page_id from responsible BufferPoolManagerInstance
   size_t targetindex=page_id%num_instances_;
-  Page* ret;
-  if(ret=multibufferpool[targetindex]->FetchPgImp(page_id))
-    return ret;
-  return nullptr;
+  return multibufferpool[targetindex]->FetchPgImp(page_id);
 }
 
 auto ParallelBufferPoolManager::UnpinPgImp(page_id_t page_id, bool is_dirty) -> bool {
@@ -100,7 +97,7 @@ auto ParallelBufferPoolManager::DeletePgImp(page_id_t page_id) -> bool {
 
 void ParallelBufferPoolManager::FlushAllPgsImp() {
   // flush all pages from all BufferPoolManagerInstances
-   for(int i=0;i<num_instances_;i++)
+   for(size_t i=0;i<num_instances_;i++)
       multibufferpool[i]->FlushAllPgsImp();
 }
 
