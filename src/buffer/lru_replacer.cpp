@@ -12,7 +12,6 @@
 
 #include "buffer/lru_replacer.h"
 #include <stack>
-#include "common/logger.h"
 namespace bustub {
 
 LRUReplacer::LRUReplacer(size_t num_pages) : head_(new Dlist), rear_(new Dlist), size_(num_pages), in_size_(0) {
