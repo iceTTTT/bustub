@@ -60,9 +60,9 @@ auto BufferPoolManagerInstance::FlushPgImp(page_id_t page_id) -> bool {
 
 void BufferPoolManagerInstance::FlushAllPgsImp() {
   latch_.lock();
-  for (auto &[k, v] : page_table_) {
+  for (auto item : page_table_) {
     latch_.unlock();
-    FlushPgImp(k);
+    FlushPgImp(item.first);
     latch_.lock();
   }
   latch_.unlock();
