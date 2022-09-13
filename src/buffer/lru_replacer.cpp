@@ -61,7 +61,7 @@ void LRUReplacer::Unpin(frame_id_t frame_id) {
   if (lrumap_.find(frame_id) != lrumap_.end()) {
     return;
   }
-  auto newnode = new Dlist;
+  auto* newnode = new Dlist;
   newnode->frame_ = frame_id;
   lrumap_[frame_id] = newnode;
   // insert in the head
