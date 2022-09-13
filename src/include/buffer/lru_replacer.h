@@ -14,8 +14,8 @@
 
 #include <list>
 #include <mutex>  // NOLINT
-#include <vector>
 #include <unordered_map>
+#include <vector>
 #include "buffer/replacer.h"
 #include "common/config.h"
 
@@ -30,20 +30,16 @@ class LRUReplacer : public Replacer {
    * Create a new LRUReplacer.
    * @param num_pages the maximum number of pages the LRUReplacer will be required to store
    */
-  struct dlist
-  {
-    dlist* next;
-    dlist* prev;
-    frame_id_t frame;
+  struct Dlist {
+    Dlist *next_;
+    Dlist *prev_;
+    frame_id_t frame_;
   };
-  dlist* head_;  
-  dlist* rear_;
-  std::unordered_map<frame_id_t,dlist* > lrumap_; 
-
+  Dlist *head_;
+  Dlist *rear_;
   size_t size_;
-  size_t in_size;
-
-
+  size_t in_size_;
+  std::unordered_map<frame_id_t, Dlist *> lrumap_;
   explicit LRUReplacer(size_t num_pages);
 
   /**
@@ -58,10 +54,11 @@ class LRUReplacer : public Replacer {
   void Unpin(frame_id_t frame_id) override;
 
   auto Size() -> size_t override;
-  
-  void insert(dlist* pos,dlist* target);
 
-  void ddelete(dlist* target);
+  void Insert(Dlist *pos, Dlist *target);
+
+  void Ddelete(Dlist *target);
+
  private:
   // TODO(student): implement me!
 };

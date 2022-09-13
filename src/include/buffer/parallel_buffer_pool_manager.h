@@ -13,20 +13,18 @@
 #pragma once
 
 #include "buffer/buffer_pool_manager.h"
+#include "buffer/buffer_pool_manager_instance.h"
 #include "recovery/log_manager.h"
 #include "storage/disk/disk_manager.h"
 #include "storage/page/page.h"
-#include "buffer/buffer_pool_manager_instance.h"
 namespace bustub {
 
 class ParallelBufferPoolManager : public BufferPoolManager {
  public:
-
-   
-   size_t num_instances_;
-   size_t start_index;
-   size_t poolsize_;
-   BufferPoolManagerInstance** multibufferpool;
+  size_t num_instances_;
+  size_t start_index_;
+  size_t poolsize_;
+  BufferPoolManagerInstance **multibufferpool_;
   /**
    * Creates a new ParallelBufferPoolManager.
    * @param num_instances the number of individual BufferPoolManagerInstances to store
