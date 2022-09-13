@@ -12,6 +12,7 @@
 
 #include "buffer/lru_replacer.h"
 #include <stack>
+#include "common/logger.h"
 namespace bustub {
 
 LRUReplacer::LRUReplacer(size_t num_pages) : head_(new Dlist), rear_(new Dlist), size_(num_pages), in_size_(0) {
@@ -21,14 +22,18 @@ LRUReplacer::LRUReplacer(size_t num_pages) : head_(new Dlist), rear_(new Dlist),
 
 LRUReplacer::~LRUReplacer() {
   std::stack<Dlist *> dstack;
+  Dlist *temphead = head_;
   head_ = head_->next_;
   while (head_ != rear_) {
     dstack.push(head_);
+    head_ = head_->next_;
   }
   while (!dstack.empty()) {
     delete dstack.top();
     dstack.pop();
   }
+  delete temphead;
+  delete rear_;
 }
 
 auto LRUReplacer::Victim(frame_id_t *frame_id) -> bool {
@@ -38,11 +43,13 @@ auto LRUReplacer::Victim(frame_id_t *frame_id) -> bool {
     Ddelete(target);
     return true;
   }
-
   return false;
 }
 
 void LRUReplacer::Pin(frame_id_t frame_id) {
+  if (lrumap_.find(frame_id) == lrumap_.end()) {
+    return;
+  }
   Dlist *target = lrumap_[frame_id];
   Ddelete(target);
 }
@@ -74,7 +81,7 @@ void LRUReplacer::Insert(Dlist *pos, Dlist *target) {
 void LRUReplacer::Ddelete(Dlist *target) {
   target->prev_->next_ = target->next_;
   target->next_->prev_ = target->prev_;
-
+  lrumap_.erase(target->frame_);
   delete target;
   // decrement size.
   in_size_--;

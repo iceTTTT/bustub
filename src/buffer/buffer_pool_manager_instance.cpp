@@ -11,7 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "buffer/buffer_pool_manager_instance.h"
-
+#include "common/logger.h"
 #include "common/macros.h"
 
 namespace bustub {
@@ -44,7 +44,9 @@ BufferPoolManagerInstance::BufferPoolManagerInstance(size_t pool_size, uint32_t 
 
 BufferPoolManagerInstance::~BufferPoolManagerInstance() {
   delete[] pages_;
+  LOG_INFO("Comes here delete page\n");
   delete replacer_;
+  LOG_INFO("Comes here delete replacer\n");
 }
 
 auto BufferPoolManagerInstance::FlushPgImp(page_id_t page_id) -> bool {
@@ -85,7 +87,9 @@ auto BufferPoolManagerInstance::NewPgImp(page_id_t *page_id) -> Page * {
     }
     if (pages_[newframe].is_dirty_) {
       pages_[newframe].is_dirty_ = false;
+      latch_.unlock();
       FlushPgImp(pages_[newframe].page_id_);
+      latch_.lock();
     }
     page_table_.erase(pages_[newframe].page_id_);
   }
@@ -127,7 +131,9 @@ auto BufferPoolManagerInstance::FetchPgImp(page_id_t page_id) -> Page * {
     }
     if (pages_[newframe].is_dirty_) {
       pages_[newframe].is_dirty_ = false;
+      latch_.unlock();
       FlushPgImp(pages_[newframe].page_id_);
+      latch_.lock();
     }
     page_table_.erase(pages_[newframe].page_id_);
   }
@@ -186,11 +192,9 @@ auto BufferPoolManagerInstance::UnpinPgImp(page_id_t page_id, bool is_dirty) -> 
 }
 
 auto BufferPoolManagerInstance::AllocatePage() -> page_id_t {
-  latch_.lock();
   const page_id_t next_page_id = next_page_id_;
   next_page_id_ += num_instances_;
   ValidatePageId(next_page_id);
-  latch_.unlock();
   return next_page_id;
 }
 
