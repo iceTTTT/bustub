@@ -54,6 +54,7 @@ auto BufferPoolManagerInstance::FlushPgImp(page_id_t page_id) -> bool {
     return false;
   }
   disk_manager_->WritePage(page_id, pages_[page_table_[page_id]].data_);
+  pages_[page_table_[page_id]].is_dirty_ = false;
   latch_.unlock();
   return true;
 }
@@ -83,7 +84,6 @@ auto BufferPoolManagerInstance::NewPgImp(page_id_t *page_id) -> Page * {
       return nullptr;
     }
     if (pages_[newframe].is_dirty_) {
-      pages_[newframe].is_dirty_ = false;
       latch_.unlock();
       FlushPgImp(pages_[newframe].page_id_);
       latch_.lock();
@@ -94,8 +94,7 @@ auto BufferPoolManagerInstance::NewPgImp(page_id_t *page_id) -> Page * {
   page_table_[*page_id] = newframe;
   pages_[newframe].ResetMemory();
   pages_[newframe].page_id_ = *page_id;
-  pages_[newframe].pin_count_++;
-
+  pages_[newframe].pin_count_ = 1;
   latch_.unlock();
   return &pages_[newframe];
   // 2.   Pick a victim page P from either the free list or the replacer. Always pick from the free list first.
@@ -127,7 +126,6 @@ auto BufferPoolManagerInstance::FetchPgImp(page_id_t page_id) -> Page * {
       return nullptr;
     }
     if (pages_[newframe].is_dirty_) {
-      pages_[newframe].is_dirty_ = false;
       latch_.unlock();
       FlushPgImp(pages_[newframe].page_id_);
       latch_.lock();
@@ -139,7 +137,7 @@ auto BufferPoolManagerInstance::FetchPgImp(page_id_t page_id) -> Page * {
   disk_manager_->ReadPage(page_id, pages_[newframe].data_);
   pages_[newframe].page_id_ = page_id;
   pages_[newframe].pin_count_++;
-
+  pages_[newframe].is_dirty_ = false;
   latch_.unlock();
   return &pages_[newframe];
   //        Note that pages are always found from the free list first.
