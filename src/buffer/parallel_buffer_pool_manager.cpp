@@ -26,12 +26,10 @@ ParallelBufferPoolManager::ParallelBufferPoolManager(size_t num_instances, size_
 
 // Update constructor to destruct all BufferPoolManagerInstances and deallocate any associated memory
 ParallelBufferPoolManager::~ParallelBufferPoolManager() {
-  latch_.lock();
   for (size_t i = 0; i < num_instances_; i++) {
     delete multibufferpool_[i];
   }
   delete[] multibufferpool_;
-  latch_.unlock();
 }
 
 auto ParallelBufferPoolManager::GetPoolSize() -> size_t {

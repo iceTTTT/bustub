@@ -42,10 +42,8 @@ BufferPoolManagerInstance::BufferPoolManagerInstance(size_t pool_size, uint32_t 
 }
 
 BufferPoolManagerInstance::~BufferPoolManagerInstance() {
-  latch_.lock();
   delete[] pages_;
   delete replacer_;
-  latch_.unlock();
 }
 
 auto BufferPoolManagerInstance::FlushPgImp(page_id_t page_id) -> bool {

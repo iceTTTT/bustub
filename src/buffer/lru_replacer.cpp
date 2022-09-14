@@ -20,7 +20,6 @@ LRUReplacer::LRUReplacer(size_t num_pages) : head_(new Dlist), rear_(new Dlist),
 }
 
 LRUReplacer::~LRUReplacer() {
-  latch_.lock();
   std::stack<Dlist *> dstack;
   Dlist *temphead = head_;
   head_ = head_->next_;
@@ -34,7 +33,6 @@ LRUReplacer::~LRUReplacer() {
   }
   delete temphead;
   delete rear_;
-  latch_.unlock();
 }
 
 auto LRUReplacer::Victim(frame_id_t *frame_id) -> bool {
