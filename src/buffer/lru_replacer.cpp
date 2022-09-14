@@ -20,6 +20,7 @@ LRUReplacer::LRUReplacer(size_t num_pages) : head_(new Dlist), rear_(new Dlist),
 }
 
 LRUReplacer::~LRUReplacer() {
+  latch_.lock();
   std::stack<Dlist *> dstack;
   Dlist *temphead = head_;
   head_ = head_->next_;
@@ -33,32 +34,42 @@ LRUReplacer::~LRUReplacer() {
   }
   delete temphead;
   delete rear_;
+  latch_.unlock();
 }
 
 auto LRUReplacer::Victim(frame_id_t *frame_id) -> bool {
+  latch_.lock();
   if (in_size_ > 0) {
     Dlist *target = rear_->prev_;
     *frame_id = target->frame_;
     Ddelete(target);
+    latch_.unlock();
     return true;
   }
+  latch_.unlock();
   return false;
 }
 
 void LRUReplacer::Pin(frame_id_t frame_id) {
+  latch_.lock();
   if (lrumap_.find(frame_id) == lrumap_.end()) {
+    latch_.unlock();
     return;
   }
   Dlist *target = lrumap_[frame_id];
   Ddelete(target);
+  latch_.unlock();
 }
 
 void LRUReplacer::Unpin(frame_id_t frame_id) {
+  latch_.lock();
   if (in_size_ == size_) {
+    latch_.unlock();
     return;
   }
   // make new node , hash
   if (lrumap_.find(frame_id) != lrumap_.end()) {
+    latch_.unlock();
     return;
   }
   auto *newnode = new Dlist;
@@ -66,6 +77,7 @@ void LRUReplacer::Unpin(frame_id_t frame_id) {
   lrumap_[frame_id] = newnode;
   // insert in the head
   Insert(head_, newnode);
+  latch_.unlock();
 }
 void LRUReplacer::Insert(Dlist *pos, Dlist *target) {
   pos->next_->prev_ = target;

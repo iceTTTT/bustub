@@ -41,7 +41,7 @@ class LRUReplacer : public Replacer {
   size_t in_size_;
   std::unordered_map<frame_id_t, Dlist *> lrumap_;
   explicit LRUReplacer(size_t num_pages);
-
+  std::mutex latch_;
   /**
    * Destroys the LRUReplacer.
    */

@@ -11,7 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #pragma once
-
+#include "mutex"
 #include "buffer/buffer_pool_manager.h"
 #include "buffer/buffer_pool_manager_instance.h"
 #include "recovery/log_manager.h"
@@ -25,6 +25,7 @@ class ParallelBufferPoolManager : public BufferPoolManager {
   size_t start_index_;
   size_t poolsize_;
   BufferPoolManagerInstance **multibufferpool_;
+  std::mutex latch_;
   /**
    * Creates a new ParallelBufferPoolManager.
    * @param num_instances the number of individual BufferPoolManagerInstances to store

@@ -26,10 +26,12 @@ ParallelBufferPoolManager::ParallelBufferPoolManager(size_t num_instances, size_
 
 // Update constructor to destruct all BufferPoolManagerInstances and deallocate any associated memory
 ParallelBufferPoolManager::~ParallelBufferPoolManager() {
+  latch_.lock();
   for (size_t i = 0; i < num_instances_; i++) {
     delete multibufferpool_[i];
   }
   delete[] multibufferpool_;
+  latch_.unlock();
 }
 
 auto ParallelBufferPoolManager::GetPoolSize() -> size_t {
@@ -64,12 +66,14 @@ auto ParallelBufferPoolManager::FlushPgImp(page_id_t page_id) -> bool {
 auto ParallelBufferPoolManager::NewPgImp(page_id_t *page_id) -> Page * {
   // create new page. We will request page allocation in a round robin manner from the underlying
   // BufferPoolManagerInstances
+  latch_.lock();
   size_t start = start_index_;
   Page *ret;
   do {
     ret = multibufferpool_[start_index_]->NewPgImp(page_id);
     start_index_ = (start_index_ + 1) % num_instances_;
   } while (ret == nullptr && start_index_ != start);
+  latch_.unlock();
   // 1.   From a starting index of the BPMIs, call NewPageImpl until either 1) success and return 2) looped around to
   // starting index and return nullptr
   // 2.   Bump the starting index (mod number of instances) to start search at a different BPMI each time this function
