@@ -136,7 +136,7 @@ auto BufferPoolManagerInstance::FetchPgImp(page_id_t page_id) -> Page * {
   page_table_[page_id] = newframe;
   disk_manager_->ReadPage(page_id, pages_[newframe].data_);
   pages_[newframe].page_id_ = page_id;
-  pages_[newframe].pin_count_++;
+  pages_[newframe].pin_count_ = 1;
   pages_[newframe].is_dirty_ = false;
   latch_.unlock();
   return &pages_[newframe];
