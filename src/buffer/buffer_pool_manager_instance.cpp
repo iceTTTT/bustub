@@ -174,11 +174,11 @@ auto BufferPoolManagerInstance::DeletePgImp(page_id_t page_id) -> bool {
 
 auto BufferPoolManagerInstance::UnpinPgImp(page_id_t page_id, bool is_dirty) -> bool {
   latch_.lock();
-  pages_[page_table_[page_id]].is_dirty_ |= is_dirty;
   if (pages_[page_table_[page_id]].pin_count_ <= 0) {
     latch_.unlock();
     return false;
   }
+  pages_[page_table_[page_id]].is_dirty_ |= is_dirty;
   if (--pages_[page_table_[page_id]].pin_count_ == 0) {
     replacer_->Unpin(page_table_[page_id]);
   }
