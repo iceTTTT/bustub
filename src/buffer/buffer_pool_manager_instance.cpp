@@ -95,8 +95,8 @@ auto BufferPoolManagerInstance::NewPgImp(page_id_t *page_id) -> Page * {
   pages_[newframe].ResetMemory();
   pages_[newframe].page_id_ = *page_id;
   pages_[newframe].pin_count_ = 1;
-  pages_[newframe].is_dirty_ = true;
   latch_.unlock();
+  FlushPgImp(*page_id);
   return &pages_[newframe];
   // 2.   Pick a victim page P from either the free list or the replacer. Always pick from the free list first.
   // 3.   Update P's metadata, zero out memory and add P to the page table.
