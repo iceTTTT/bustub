@@ -18,19 +18,14 @@ ParallelBufferPoolManager::ParallelBufferPoolManager(size_t num_instances, size_
                                                      LogManager *log_manager)
     : num_instances_(num_instances), start_index_(0), poolsize_(pool_size) {
   // Allocate and create individual BufferPoolManagerInstances
-  multibufferpool_ = new BufferPoolManagerInstance *[num_instances_];
+  
   for (size_t i = 0; i < num_instances_; i++) {
-    multibufferpool_[i] = new BufferPoolManagerInstance(poolsize_, num_instances_, i, disk_manager, log_manager);
+    mbp.emplace_back(poolsize_, num_instances_, i, disk_manager, log_manager);
   }
 }
 
 // Update constructor to destruct all BufferPoolManagerInstances and deallocate any associated memory
-ParallelBufferPoolManager::~ParallelBufferPoolManager() {
-  for (size_t i = 0; i < num_instances_; i++) {
-    delete multibufferpool_[i];
-  }
-  delete[] multibufferpool_;
-}
+ParallelBufferPoolManager::~ParallelBufferPoolManager(){}
 
 auto ParallelBufferPoolManager::GetPoolSize() -> size_t {
   // Get size of all BufferPoolManagerInstances
@@ -40,25 +35,25 @@ auto ParallelBufferPoolManager::GetPoolSize() -> size_t {
 auto ParallelBufferPoolManager::GetBufferPoolManager(page_id_t page_id) -> BufferPoolManager * {
   // Get BufferPoolManager responsible for handling given page id. You can use this method in your other methods.
   size_t targetindex = page_id % num_instances_;
-  return multibufferpool_[targetindex];
+  return &mbp[targetindex];
 }
 
 auto ParallelBufferPoolManager::FetchPgImp(page_id_t page_id) -> Page * {
   // Fetch page for page_id from responsible BufferPoolManagerInstance
   size_t targetindex = page_id % num_instances_;
-  return multibufferpool_[targetindex]->FetchPgImp(page_id);
+  return mbp[targetindex].FetchPgImp(page_id);
 }
 
 auto ParallelBufferPoolManager::UnpinPgImp(page_id_t page_id, bool is_dirty) -> bool {
   // Unpin page_id from responsible BufferPoolManagerInstance
   size_t targetindex = page_id % num_instances_;
-  return multibufferpool_[targetindex]->UnpinPgImp(page_id, is_dirty);
+  return mbp[targetindex].UnpinPgImp(page_id, is_dirty);
 }
 
 auto ParallelBufferPoolManager::FlushPgImp(page_id_t page_id) -> bool {
   // Flush page_id from responsible BufferPoolManagerInstance
   size_t targetindex = page_id % num_instances_;
-  return multibufferpool_[targetindex]->FlushPgImp(page_id);
+  return mbp[targetindex].FlushPgImp(page_id);
 }
 
 auto ParallelBufferPoolManager::NewPgImp(page_id_t *page_id) -> Page * {
@@ -68,7 +63,7 @@ auto ParallelBufferPoolManager::NewPgImp(page_id_t *page_id) -> Page * {
   size_t start = start_index_;
   Page *ret;
   do {
-    ret = multibufferpool_[start]->NewPgImp(page_id);
+    ret = mbp[start].NewPgImp(page_id);
     start = (start + 1) % num_instances_;
   } while (ret == nullptr && start_index_ != start);
   start_index_ = (start_index_ + 1) % num_instances_;
@@ -83,13 +78,13 @@ auto ParallelBufferPoolManager::NewPgImp(page_id_t *page_id) -> Page * {
 auto ParallelBufferPoolManager::DeletePgImp(page_id_t page_id) -> bool {
   // Delete page_id from responsible BufferPoolManagerInstance
   size_t targetindex = page_id % num_instances_;
-  return multibufferpool_[targetindex]->DeletePage(page_id);
+  return mbp[targetindex].DeletePage(page_id);
 }
 
 void ParallelBufferPoolManager::FlushAllPgsImp() {
   // flush all pages from all BufferPoolManagerInstances
   for (size_t i = 0; i < num_instances_; i++) {
-    multibufferpool_[i]->FlushAllPgsImp();
+    mbp[i].FlushAllPgsImp();
   }
 }
 
