@@ -11,7 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #pragma once
-#include <deque>
+#include <vector>
 #include "buffer/buffer_pool_manager.h"
 #include "buffer/buffer_pool_manager_instance.h"
 #include "mutex"  // NOLINT
@@ -25,7 +25,7 @@ class ParallelBufferPoolManager : public BufferPoolManager {
   size_t num_instances_;
   size_t start_index_;
   size_t poolsize_;
-  std::deque<BufferPoolManagerInstance> mbp_;
+  std::vector<BufferPoolManagerInstance *> mbp_;
   std::mutex latch_;
   /**
    * Creates a new ParallelBufferPoolManager.
