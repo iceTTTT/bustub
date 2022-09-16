@@ -101,9 +101,7 @@ auto BufferPoolManagerInstance::FetchPgImp(page_id_t page_id) -> Page * {
   std::lock_guard<std::mutex> guardlock(latch_);
   if (page_table_.find(page_id) != page_table_.end()) {
     // 1.1    If P exists, pin it and return it immediately.
-    if (pages_[page_table_[page_id]].pin_count_ == 0) {
-      replacer_->Pin(page_table_[page_id]);
-    }
+    replacer_->Pin(page_table_[page_id]);
     pages_[page_table_[page_id]].pin_count_++;
     return &pages_[page_table_[page_id]];
   }
@@ -161,11 +159,11 @@ auto BufferPoolManagerInstance::DeletePgImp(page_id_t page_id) -> bool {
 
 auto BufferPoolManagerInstance::UnpinPgImp(page_id_t page_id, bool is_dirty) -> bool {
   std::lock_guard<std::mutex> guardlock(latch_);
-  if (pages_[page_table_[page_id]].pin_count_ <= 0) {
+  if (page_table_.find(page_id) == page_table_.end() || pages_[page_table_[page_id]].pin_count_ <= 0) {
     return false;
   }
   pages_[page_table_[page_id]].is_dirty_ |= is_dirty;
-  if (--pages_[page_table_[page_id]].pin_count_ == 0) {
+  if (pages_[page_table_[page_id]].pin_count_-- == 1) {
     replacer_->Unpin(page_table_[page_id]);
   }
   return true;
