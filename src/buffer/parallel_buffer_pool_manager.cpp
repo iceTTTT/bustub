@@ -66,10 +66,9 @@ auto ParallelBufferPoolManager::NewPgImp(page_id_t *page_id) -> Page * {
   size_t start = start_index_;
   Page *ret;
   do {
-    ret = mbp_[start]->NewPgImp(page_id);
-    start = (start + 1) % num_instances_;
+    ret = mbp_[start_index_]->NewPgImp(page_id);
+    start_index_ = (start_index_ + 1) % num_instances_;
   } while (ret == nullptr && start_index_ != start);
-  start_index_ = (start_index_ + 1) % num_instances_;
   // 1.   From a starting index of the BPMIs, call NewPageImpl until either 1) success and return 2) looped around to
   // starting index and return nullptr
   // 2.   Bump the starting index (mod number of instances) to start search at a different BPMI each time this function
@@ -89,5 +88,4 @@ void ParallelBufferPoolManager::FlushAllPgsImp() {
     mbp_[i]->FlushAllPgsImp();
   }
 }
-
 }  // namespace bustub

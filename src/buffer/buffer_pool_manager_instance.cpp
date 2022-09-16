@@ -144,6 +144,9 @@ auto BufferPoolManagerInstance::DeletePgImp(page_id_t page_id) -> bool {
   // 2.   If P exists, but has a non-zero pin-count, return false. Someone is using the page.
   if (pages_[page_table_[page_id]].pin_count_ == 0) {
     replacer_->Pin(page_table_[page_id]);
+    if (pages_[page_table_[page_id]].is_dirty_) {
+        disk_manager_->WritePage(page_id, pages_[page_table_[page_id]].data_);
+    }
     pages_[page_table_[page_id]].ResetMemory();
     pages_[page_table_[page_id]].is_dirty_ = false;
     pages_[page_table_[page_id]].page_id_ = INVALID_PAGE_ID;
