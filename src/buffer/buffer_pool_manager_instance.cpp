@@ -79,7 +79,7 @@ auto BufferPoolManagerInstance::NewPgImp(page_id_t *page_id) -> Page * {
       return nullptr;
     }
     if (pages_[newframe].is_dirty_) {
-          disk_manager_->WritePage(pages_[newframe].page_id_, pages_[newframe].data_);
+      disk_manager_->WritePage(pages_[newframe].page_id_, pages_[newframe].data_);
     }
     page_table_.erase(pages_[newframe].page_id_);
   }
