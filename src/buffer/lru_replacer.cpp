@@ -14,7 +14,7 @@
 #include <stack>
 namespace bustub {
 
-LRUReplacer::LRUReplacer(size_t num_pages) : head_(new Dlist), rear_(new Dlist), size_(num_pages), in_size_(0) {
+LRUReplacer::LRUReplacer(size_t num_pages) : head_(new Dlist), rear_(new Dlist), size_(num_pages) {
   head_->next_ = rear_;
   rear_->prev_ = head_;
 }
@@ -37,7 +37,7 @@ LRUReplacer::~LRUReplacer() {
 
 auto LRUReplacer::Victim(frame_id_t *frame_id) -> bool {
   std::lock_guard<std::mutex> guard(latch_);
-  if (in_size_ > 0) {
+  if (!lrumap_.empty()) {
     Dlist *target = rear_->prev_;
     *frame_id = target->frame_;
     Ddelete(target);
@@ -56,33 +56,28 @@ void LRUReplacer::Pin(frame_id_t frame_id) {
 }
 void LRUReplacer::Unpin(frame_id_t frame_id) {
   std::lock_guard<std::mutex> guard(latch_);
-  if (in_size_ == size_ || lrumap_.find(frame_id) != lrumap_.end()) {
+  if (lrumap_.size() == size_ || lrumap_.find(frame_id) != lrumap_.end()) {
     return;
   }
   // make new node , hash
   auto *newnode = new Dlist;
   newnode->frame_ = frame_id;
-  lrumap_[frame_id] = newnode;
   // insert in the head
   Insert(head_, newnode);
 }
 void LRUReplacer::Insert(Dlist *pos, Dlist *target) {
+  lrumap_[target->frame_] = target;
   pos->next_->prev_ = target;
   target->next_ = pos->next_;
   target->prev_ = pos;
   pos->next_ = target;
-
-  // increment size.
-  in_size_++;
 }
 void LRUReplacer::Ddelete(Dlist *target) {
   target->prev_->next_ = target->next_;
   target->next_->prev_ = target->prev_;
   lrumap_.erase(target->frame_);
   delete target;
-  // decrement size.
-  in_size_--;
 }
-auto LRUReplacer::Size() -> size_t { return in_size_; }
+auto LRUReplacer::Size() -> size_t { return lrumap_.size(); }
 
 }  // namespace bustub

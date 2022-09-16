@@ -145,7 +145,7 @@ auto BufferPoolManagerInstance::DeletePgImp(page_id_t page_id) -> bool {
   if (pages_[page_table_[page_id]].pin_count_ == 0) {
     replacer_->Pin(page_table_[page_id]);
     if (pages_[page_table_[page_id]].is_dirty_) {
-        disk_manager_->WritePage(page_id, pages_[page_table_[page_id]].data_);
+      disk_manager_->WritePage(page_id, pages_[page_table_[page_id]].data_);
     }
     pages_[page_table_[page_id]].ResetMemory();
     pages_[page_table_[page_id]].is_dirty_ = false;

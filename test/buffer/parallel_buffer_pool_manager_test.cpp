@@ -109,11 +109,13 @@ TEST(ParallelBufferPoolManagerTest, SampleTest) {
   // Scenario: We should be able to create new pages until we fill up the buffer pool.
   for (size_t i = 1; i < buffer_pool_size * num_instances; ++i) {
     EXPECT_NE(nullptr, bpm->NewPage(&page_id_temp));
+    LOG_INFO("page_id is : %d\n", page_id_temp);
   }
 
   // Scenario: Once the buffer pool is full, we should not be able to create any new pages.
   for (size_t i = buffer_pool_size; i < buffer_pool_size * num_instances * 2; ++i) {
     EXPECT_EQ(nullptr, bpm->NewPage(&page_id_temp));
+    LOG_INFO("page_id is : %d\n", page_id_temp);
   }
 
   // Write world out to page 4
@@ -140,6 +142,7 @@ TEST(ParallelBufferPoolManagerTest, SampleTest) {
   // now be pinned. Fetching page 4 should fail.
   EXPECT_EQ(true, bpm->UnpinPage(4, true));
   EXPECT_NE(nullptr, bpm->NewPage(&page_id_temp));
+  LOG_INFO("page_id is : %d\n", page_id_temp);
   EXPECT_EQ(nullptr, bpm->FetchPage(4));
 
   // Shutdown the disk manager and remove the temporary file we created.
@@ -178,7 +181,6 @@ TEST(ParallelBufferPoolManagerTest, RoundRobin) {
   for (size_t i = buffer_pool_size; i < buffer_pool_size * num_instances * 5; ++i) {
     EXPECT_EQ(nullptr, bpm->NewPage(&page_id_temp));
   }
-
   // Write world out to page 4
   auto page4 = bpm->FetchPage(4);
   snprintf(page4->GetData(), PAGE_SIZE, "World");
