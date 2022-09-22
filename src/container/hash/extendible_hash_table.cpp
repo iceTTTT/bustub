@@ -178,7 +178,7 @@ auto HASH_TABLE_TYPE::Insert(Transaction *transaction, const KeyType &key, const
       // Increment local depth of all(have same low bit with dindex).
       for (uint32_t idx = 0; idx < dp->Size(); idx++) {
         if (static_cast<page_id_t>(idx & premask) == preref) {
-          dp->SetLocalDepth(idx, thisld+1);
+          dp->SetLocalDepth(idx, thisld + 1);
           if (static_cast<page_id_t>(idx & newmask) == iref) {
             dp->SetBucketPageId(idx, iref);
           } else {
@@ -285,7 +285,7 @@ auto HASH_TABLE_TYPE::Remove(Transaction *transaction, const KeyType &key, const
       pdp->WLatch();
       dp->DecrLocalDepth(dindex);
       dp->DecrLocalDepth(iindex);
-      uint32_t  lowmask = dp->GetLocalDepthMask(dindex);
+      uint32_t lowmask = dp->GetLocalDepthMask(dindex);
       page_id_t lowpageref = dindex & lowmask;
       page_id_t predref = dp->GetBucketPageId(dindex);
       page_id_t preiref = dp->GetBucketPageId(iindex);
@@ -305,8 +305,8 @@ auto HASH_TABLE_TYPE::Remove(Transaction *transaction, const KeyType &key, const
           shrink = false;
         }
         if (static_cast<page_id_t>(i & lowmask) == lowpageref) {
-           dp->SetBucketPageId(i, lowpageref);
-           dp->SetLocalDepth(i, tld-1);
+          dp->SetBucketPageId(i, lowpageref);
+          dp->SetLocalDepth(i, tld - 1);
         }
       }
       if (shrink) {
