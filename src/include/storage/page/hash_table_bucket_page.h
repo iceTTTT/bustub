@@ -55,7 +55,7 @@ class HashTableBucketPage {
    * @param value value to insert
    * @return true if inserted, false if duplicate KV pair or bucket is full
    */
-  auto Insert(KeyType key, ValueType value, KeyComparator cmp) -> bool;
+  auto Insert(KeyType key, ValueType value, KeyComparator cmp) -> int;
 
   /**
    * Removes a key and value.
@@ -136,6 +136,11 @@ class HashTableBucketPage {
    * Prints the bucket's occupancy information
    */
   void PrintBucket();
+
+  /**
+   *   reset the target index to unreadable.
+   */
+  void ResetRead(uint32_t bucket_idx);
 
  private:
   //  For more on BUCKET_ARRAY_SIZE see storage/page/hash_table_page_defs.h

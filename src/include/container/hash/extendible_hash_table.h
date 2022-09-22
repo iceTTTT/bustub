@@ -14,6 +14,7 @@
 
 #include <queue>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "buffer/buffer_pool_manager.h"
@@ -169,6 +170,8 @@ class ExtendibleHashTable {
   // Readers includes inserts and removes, writers are splits and merges
   ReaderWriterLatch table_latch_;
   HashFunction<KeyType> hash_fn_;
+
+  std::unordered_map<page_id_t, page_id_t> reftopage_;
 };
 
 }  // namespace bustub
