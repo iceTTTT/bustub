@@ -16,7 +16,6 @@
 #include <vector>
 
 #include "common/exception.h"
-#include "common/logger.h"
 #include "common/rid.h"
 #include "container/hash/extendible_hash_table.h"
 
@@ -159,7 +158,9 @@ auto HASH_TABLE_TYPE::Insert(Transaction *transaction, const KeyType &key, const
       page_id_t dref = dindex & newmask;
       page_id_t iref = iindex & newmask;
       reftopage_[dref] = reftopage_[preref];
-      reftopage_.erase(preref);
+      if (preref != dref) {
+        reftopage_.erase(preref);
+      }
       dp->SetBucketPageId(dindex, dref);
       // Register new page in refpage for image index.
       reftopage_[iref] = newpage;
@@ -177,7 +178,7 @@ auto HASH_TABLE_TYPE::Insert(Transaction *transaction, const KeyType &key, const
       // Increment local depth of all(have same low bit with dindex).
       for (uint32_t idx = 0; idx < dp->Size(); idx++) {
         if (static_cast<page_id_t>(idx & premask) == preref) {
-          dp->IncrLocalDepth(idx);
+          dp->SetLocalDepth(idx, thisld+1);
           if (static_cast<page_id_t>(idx & newmask) == iref) {
             dp->SetBucketPageId(idx, iref);
           } else {
@@ -203,10 +204,13 @@ auto HASH_TABLE_TYPE::Insert(Transaction *transaction, const KeyType &key, const
       dp->IncrLocalDepth(iindex);
       // Set new  bucketpageid.
       uint32_t newmask = dp->GetLocalDepthMask(dindex);
-      uint32_t dref = dindex & newmask;
-      uint32_t iref = iindex & newmask;
-      reftopage_[dref] = reftopage_[dp->GetBucketPageId(dindex)];
-      reftopage_.erase(dp->GetBucketPageId(dindex));
+      page_id_t dref = dindex & newmask;
+      page_id_t iref = iindex & newmask;
+      page_id_t preref = dp->GetBucketPageId(dindex);
+      reftopage_[dref] = reftopage_[preref];
+      if (dref != preref) {
+        reftopage_.erase(preref);
+      }
       dp->SetBucketPageId(dindex, dref);
       // Register new page for iindex.
       reftopage_[iref] = newpage;
@@ -216,7 +220,7 @@ auto HASH_TABLE_TYPE::Insert(Transaction *transaction, const KeyType &key, const
         if (!orip->IsOccupied(i)) {
           break;
         }
-        if ((Hash(orip->KeyAt(i)) & newmask) != dref) {
+        if ((Hash(orip->KeyAt(i)) & newmask) != static_cast<uint32_t>(dref)) {
           orip->RemoveAt(i);
           imap->Insert(orip->KeyAt(i), orip->ValueAt(i), comparator_);
         }
@@ -229,7 +233,7 @@ auto HASH_TABLE_TYPE::Insert(Transaction *transaction, const KeyType &key, const
     buffer_pool_manager_->UnpinPage(directory_page_id_, true);
     buffer_pool_manager_->UnpinPage(newpage, true);
     buffer_pool_manager_->UnpinPage(targetpage, true);
-    Insert(nullptr, key, value);
+    return Insert(nullptr, key, value);
   }
   // Duplicate kv pair. or reach maximum depth.
   pop->WUnlatch();
@@ -281,7 +285,8 @@ auto HASH_TABLE_TYPE::Remove(Transaction *transaction, const KeyType &key, const
       pdp->WLatch();
       dp->DecrLocalDepth(dindex);
       dp->DecrLocalDepth(iindex);
-      page_id_t lowpageref = dindex & dp->GetLocalDepthMask(dindex);
+      uint32_t  lowmask = dp->GetLocalDepthMask(dindex);
+      page_id_t lowpageref = dindex & lowmask;
       page_id_t predref = dp->GetBucketPageId(dindex);
       page_id_t preiref = dp->GetBucketPageId(iindex);
       reftopage_.erase(predref);
@@ -291,13 +296,17 @@ auto HASH_TABLE_TYPE::Remove(Transaction *transaction, const KeyType &key, const
       if (preiref != lowpageref) {
         reftopage_.erase(preiref);
       }
+      // Cast changes to all have the same lowpageref.
       // Check if can shrink. If all local depth is smaller than global depth, then shrink.
       bool shrink = true;
       uint32_t gd = dp->GetGlobalDepth();
       for (uint32_t i = 0; i < dp->Size(); i++) {
         if (dp->GetLocalDepth(i) == gd) {
           shrink = false;
-          break;
+        }
+        if (static_cast<page_id_t>(i & lowmask) == lowpageref) {
+           dp->SetBucketPageId(i, lowpageref);
+           dp->SetLocalDepth(i, tld-1);
         }
       }
       if (shrink) {
