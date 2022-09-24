@@ -145,7 +145,6 @@ auto HASH_TABLE_TYPE::SplitInsert(Transaction *transaction, const KeyType &key, 
   uint32_t iindex;
   uint32_t thisld = dp->GetLocalDepth(dindex);
   uint32_t gd = dp->GetGlobalDepth();
-  LOG_INFO(" Split Global Depth: %u Local Depth: %u", dp->GetGlobalDepth(), dp->GetLocalDepth(dindex));
   // Acquire talbe write lock.
   auto orip = FetchBucketPage(targetpage);
   auto imap = reinterpret_cast<HASH_TABLE_BUCKET_TYPE *>(buffer_pool_manager_->NewPage(&newpage));
@@ -262,7 +261,8 @@ auto HASH_TABLE_TYPE::Remove(Transaction *transaction, const KeyType &key, const
     buffer_pool_manager_->UnpinPage(targetpage, false);
     Merge(nullptr, key, value);
     return true;
-  } else if (p->IsEmpty()) {
+  }
+  if (p->IsEmpty()) {
     pop->WUnlatch();
     pdp->RUnlatch();
     table_latch_.RUnlock();
@@ -291,7 +291,6 @@ void HASH_TABLE_TYPE::Merge(Transaction *transaction, const KeyType &key, const 
   uint32_t iindex;
   uint32_t tld = dp->GetLocalDepth(dindex);
   page_id_t targetpage = KeyToPageId(key, dp);
-  LOG_INFO(" Merge Global Depth: %u Local Depth: %u", dp->GetGlobalDepth(), dp->GetLocalDepth(dindex));
   HASH_TABLE_BUCKET_TYPE *p = FetchBucketPage(targetpage);
   // Get the image index.
   bool highbit = static_cast<bool>((dindex >> (tld - 1)) & 0x1);

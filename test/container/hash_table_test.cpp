@@ -113,11 +113,11 @@ TEST(HashTableTest, MassiveSampleTest) {
   delete bpm;
 }
 
-void Thread1(ExtendibleHashTable<int, int, IntComparator> &ht) {
-  for (int i = 50000; i < 100000; i++) {
-    ht.Insert(nullptr, i, i);
+void Thread1(ExtendibleHashTable<int, int, IntComparator> *ht) {
+  for (int i = 0; i < 30000; i++) {
+    ht->Insert(nullptr, i, i);
     std::vector<int> res;
-    ht.GetValue(nullptr, i, &res);
+    ht->GetValue(nullptr, i, &res);
     EXPECT_EQ(1, res.size()) << "Failed to insert " << i << std::endl;
     EXPECT_EQ(i, res[0]);
   }
@@ -137,16 +137,31 @@ TEST(HashTableTest, ConcurrentMassiveTest) {
   // 496 k-v pair in a page.
   ExtendibleHashTable<int, int, IntComparator> ht("blah", bpm, IntComparator(), HashFunction<int>());
 
-  std::thread t1(Thread1, std::ref(ht));
-  for (int i = 0; i < 50000; i++) {
+  std::thread t1(Thread1, &ht);
+  for (int i = 0; i < 20000; i++) {
     ht.Insert(nullptr, i, i);
     std::vector<int> res;
     ht.GetValue(nullptr, i, &res);
     EXPECT_EQ(1, res.size()) << "Failed to insert " << i << std::endl;
     EXPECT_EQ(i, res[0]);
   }
-
   t1.join();
+  for (int i = 0; i < 30000; i++) {
+    EXPECT_TRUE(ht.Remove(nullptr, i, i));
+    std::vector<int> res;
+    ht.GetValue(nullptr, i, &res);
+
+    // (0, 0) is the only pair with key 0
+    EXPECT_EQ(0, res.size());
+  }
+  for (int i = 0; i < 1000; i++) {
+    EXPECT_FALSE(ht.Remove(nullptr, i, i));
+    std::vector<int> res;
+    ht.GetValue(nullptr, i, &res);
+
+    // (0, 0) is the only pair with key 0
+    EXPECT_EQ(0, res.size());
+  }
   disk_manager->ShutDown();
   remove("test.db");
   delete disk_manager;
