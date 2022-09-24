@@ -40,7 +40,7 @@ void HashTableDirectoryPage::SetBucketPageId(uint32_t bucket_idx, page_id_t buck
 
 auto HashTableDirectoryPage::Size() -> uint32_t {
   if (global_depth_ == 0) {
-    return 0;
+    return 1;
   }
   uint32_t size = 1;
   uint32_t tmp = global_depth_;

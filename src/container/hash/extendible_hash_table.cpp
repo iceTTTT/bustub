@@ -31,17 +31,12 @@ HASH_TABLE_TYPE::ExtendibleHashTable(const std::string &name, BufferPoolManager 
   auto rdp = reinterpret_cast<HashTableDirectoryPage *>(dp);
   reinterpret_cast<Page *>(rdp)->WLatch();
   rdp->SetPageId(directory_page_id_);
-  rdp->IncrGlobalDepth();
-  // Initiate existing local depths to 1.
-  for (uint32_t idx = 0; idx < rdp->Size(); idx++) {
-    rdp->SetLocalDepth(idx, 1);
-    page_id_t targetpage;
-    // allocate page as bucket.
-    buffer_pool_manager_->NewPage(&targetpage);
-    buffer_pool_manager_->UnpinPage(targetpage, false);
-    reftopage_[idx & 0x1] = targetpage;
-    rdp->SetBucketPageId(idx, idx & 0x1);
-  }
+  // Global Depth equals 0.
+  page_id_t targetpage;
+  buffer_pool_manager_->NewPage(&targetpage);
+  buffer_pool_manager_->UnpinPage(targetpage, false);
+  reftopage_[0] = targetpage;
+  rdp->SetBucketPageId(0, 0);
   reinterpret_cast<Page *>(rdp)->WUnlatch();
   table_latch_.WUnlock();
   buffer_pool_manager_->UnpinPage(directory_page_id_, true);
@@ -116,127 +111,23 @@ auto HASH_TABLE_TYPE::Insert(Transaction *transaction, const KeyType &key, const
   Page *pop = reinterpret_cast<Page *>(orip);
   pop->WLatch();
   int sign = orip->Insert(key, value, comparator_);
+  pop->WUnlatch();
   if (sign == 1) {
     // Succeeded.
-    pop->WUnlatch();
     pdp->RUnlatch();
     table_latch_.RUnlock();
     buffer_pool_manager_->UnpinPage(directory_page_id_, false);
     buffer_pool_manager_->UnpinPage(targetpage, true);
     return true;
   }
-  uint32_t dindex = KeyToDirectoryIndex(key, dp);
-  uint32_t thisld = dp->GetLocalDepth(dindex);
-  if (sign == 0 && thisld < 9) {
-    // Split.
-    page_id_t newpage;
-    uint32_t iindex;
-    pop->WUnlatch();
+  if (sign == 0 && dp->GetLocalDepth(KeyToDirectoryIndex(key, dp)) < 9) {
     pdp->RUnlatch();
     table_latch_.RUnlock();
-    // Reacquire the write lock.
-    table_latch_.WLock();
-    pdp->WLatch();
-    pop->WLatch();
-    auto imap = reinterpret_cast<HASH_TABLE_BUCKET_TYPE *>(buffer_pool_manager_->NewPage(&newpage));
-    Page *pip = reinterpret_cast<Page *>(imap);
-    pip->WLatch();
-    if (thisld < dp->GetGlobalDepth()) {
-      // Get image index.
-      bool highbit = static_cast<bool>(dp->GetLocalHighBit(dindex));
-      if (highbit) {
-        iindex = dindex & ~(0x1 << thisld);
-      } else {
-        iindex = dindex | (0x1 << thisld);
-      }
-      // Increment local depth of two index, update page in refpage.
-      uint32_t premask = dp->GetLocalDepthMask(dindex);
-      page_id_t preref = dp->GetBucketPageId(dindex);
-      dp->IncrLocalDepth(dindex);
-      dp->IncrLocalDepth(iindex);
-      uint32_t newmask = dp->GetLocalDepthMask(dindex);
-      page_id_t dref = dindex & newmask;
-      page_id_t iref = iindex & newmask;
-      reftopage_[dref] = reftopage_[preref];
-      if (preref != dref) {
-        reftopage_.erase(preref);
-      }
-      dp->SetBucketPageId(dindex, dref);
-      // Register new page in refpage for image index.
-      reftopage_[iref] = newpage;
-      dp->SetBucketPageId(iindex, iref);
-      // Move certain k-v to image page.
-      for (uint32_t i = 0; i < BUCKET_ARRAY_SIZE; i++) {
-        if (!orip->IsOccupied(i)) {
-          break;
-        }
-        if (static_cast<page_id_t>(Hash(orip->KeyAt(i)) & newmask) != dref) {
-          orip->RemoveAt(i);
-          imap->Insert(orip->KeyAt(i), orip->ValueAt(i), comparator_);
-        }
-      }
-      // Increment local depth of all(have same low bit with dindex).
-      for (uint32_t idx = 0; idx < dp->Size(); idx++) {
-        if (static_cast<page_id_t>(idx & premask) == preref) {
-          dp->SetLocalDepth(idx, thisld + 1);
-          if (static_cast<page_id_t>(idx & newmask) == iref) {
-            dp->SetBucketPageId(idx, iref);
-          } else {
-            dp->SetBucketPageId(idx, dref);
-          }
-        }
-      }
-    } else {
-      uint32_t gd = dp->GetGlobalDepth();
-      // To increment the globaldepth , we need copy things to the next generation.
-      uint32_t plusv = 1;
-      for (uint32_t i = 0; i < gd; i++) {
-        plusv *= 2;
-      }
-      for (uint32_t idx = 0; idx < dp->Size(); idx++) {
-        dp->SetLocalDepth(idx + plusv, dp->GetLocalDepth(idx));
-        dp->SetBucketPageId(idx + plusv, dp->GetBucketPageId(idx));
-      }
-      dp->IncrGlobalDepth();
-      // Get image index. Increment relative local depth.
-      iindex = dindex | (0x1 << thisld);
-      dp->IncrLocalDepth(dindex);
-      dp->IncrLocalDepth(iindex);
-      // Set new  bucketpageid.
-      uint32_t newmask = dp->GetLocalDepthMask(dindex);
-      page_id_t dref = dindex & newmask;
-      page_id_t iref = iindex & newmask;
-      page_id_t preref = dp->GetBucketPageId(dindex);
-      reftopage_[dref] = reftopage_[preref];
-      if (dref != preref) {
-        reftopage_.erase(preref);
-      }
-      dp->SetBucketPageId(dindex, dref);
-      // Register new page for iindex.
-      reftopage_[iref] = newpage;
-      dp->SetBucketPageId(iindex, iref);
-      // Move certain k-v to image page.
-      for (uint32_t i = 0; i < BUCKET_ARRAY_SIZE; i++) {
-        if (!orip->IsOccupied(i)) {
-          break;
-        }
-        if ((Hash(orip->KeyAt(i)) & newmask) != static_cast<uint32_t>(dref)) {
-          orip->RemoveAt(i);
-          imap->Insert(orip->KeyAt(i), orip->ValueAt(i), comparator_);
-        }
-      }
-    }
-    pip->WUnlatch();
-    pop->WUnlatch();
-    pdp->WUnlatch();
-    table_latch_.WUnlock();
-    buffer_pool_manager_->UnpinPage(directory_page_id_, true);
-    buffer_pool_manager_->UnpinPage(newpage, true);
-    buffer_pool_manager_->UnpinPage(targetpage, true);
-    return Insert(nullptr, key, value);
+    buffer_pool_manager_->UnpinPage(directory_page_id_, false);
+    buffer_pool_manager_->UnpinPage(targetpage, false);
+    return SplitInsert(nullptr, key, value);
   }
   // Duplicate kv pair. or reach maximum depth.
-  pop->WUnlatch();
   pdp->RUnlatch();
   table_latch_.RUnlock();
   buffer_pool_manager_->UnpinPage(directory_page_id_, false);
@@ -246,7 +137,107 @@ auto HASH_TABLE_TYPE::Insert(Transaction *transaction, const KeyType &key, const
 
 template <typename KeyType, typename ValueType, typename KeyComparator>
 auto HASH_TABLE_TYPE::SplitInsert(Transaction *transaction, const KeyType &key, const ValueType &value) -> bool {
-  return false;
+  table_latch_.WLock();
+  HashTableDirectoryPage *dp = FetchDirectoryPage();
+  page_id_t targetpage = KeyToPageId(key, dp);
+  page_id_t newpage;
+  uint32_t dindex = KeyToDirectoryIndex(key, dp);
+  uint32_t iindex;
+  uint32_t thisld = dp->GetLocalDepth(dindex);
+  uint32_t gd = dp->GetGlobalDepth();
+  LOG_INFO(" Split Global Depth: %u Local Depth: %u", dp->GetGlobalDepth(), dp->GetLocalDepth(dindex));
+  // Acquire talbe write lock.
+  auto orip = FetchBucketPage(targetpage);
+  auto imap = reinterpret_cast<HASH_TABLE_BUCKET_TYPE *>(buffer_pool_manager_->NewPage(&newpage));
+  if (thisld < gd) {
+    // Get image index.
+    bool highbit = static_cast<bool>(dp->GetLocalHighBit(dindex));
+    if (highbit) {
+      iindex = dindex & ~(0x1 << thisld);
+    } else {
+      iindex = dindex | (0x1 << thisld);
+    }
+    // Increment local depth of two index, update page in refpage.
+    uint32_t premask = dp->GetLocalDepthMask(dindex);
+    page_id_t preref = dp->GetBucketPageId(dindex);
+    dp->IncrLocalDepth(dindex);
+    dp->IncrLocalDepth(iindex);
+    uint32_t newmask = dp->GetLocalDepthMask(dindex);
+    page_id_t dref = dindex & newmask;
+    page_id_t iref = iindex & newmask;
+    reftopage_[dref] = reftopage_[preref];
+    if (preref != dref) {
+      reftopage_.erase(preref);
+    }
+    dp->SetBucketPageId(dindex, dref);
+    // Register new page in refpage for image index.
+    reftopage_[iref] = newpage;
+    dp->SetBucketPageId(iindex, iref);
+    // Move certain k-v to image page.
+    for (uint32_t i = 0; i < BUCKET_ARRAY_SIZE; i++) {
+      if (!orip->IsOccupied(i)) {
+        break;
+      }
+      if (static_cast<page_id_t>(Hash(orip->KeyAt(i)) & newmask) != dref) {
+        orip->RemoveAt(i);
+        imap->Insert(orip->KeyAt(i), orip->ValueAt(i), comparator_);
+      }
+    }
+    // Set local depth of all(have same low bit with dindex).
+    for (uint32_t idx = 0; idx < dp->Size(); idx++) {
+      if (static_cast<page_id_t>(idx & premask) == preref) {
+        dp->SetLocalDepth(idx, thisld + 1);
+        if (static_cast<page_id_t>(idx & newmask) == iref) {
+          dp->SetBucketPageId(idx, iref);
+        } else {
+          dp->SetBucketPageId(idx, dref);
+        }
+      }
+    }
+  } else {
+    // To increment the globaldepth , we need copy things to the next generation.
+    uint32_t plusv = 1;
+    for (uint32_t i = 0; i < gd; i++) {
+      plusv *= 2;
+    }
+    for (uint32_t idx = 0; idx < dp->Size(); idx++) {
+      dp->SetLocalDepth(idx + plusv, dp->GetLocalDepth(idx));
+      dp->SetBucketPageId(idx + plusv, dp->GetBucketPageId(idx));
+    }
+    dp->IncrGlobalDepth();
+    // Get image index. Increment relative local depth.
+    iindex = dindex | (0x1 << thisld);
+    dp->IncrLocalDepth(dindex);
+    dp->IncrLocalDepth(iindex);
+    // Set new  bucketpageid.
+    uint32_t newmask = dp->GetLocalDepthMask(dindex);
+    page_id_t dref = dindex & newmask;
+    page_id_t iref = iindex & newmask;
+    page_id_t preref = dp->GetBucketPageId(dindex);
+    reftopage_[dref] = reftopage_[preref];
+    if (dref != preref) {
+      reftopage_.erase(preref);
+    }
+    dp->SetBucketPageId(dindex, dref);
+    // Register new page for iindex.
+    reftopage_[iref] = newpage;
+    dp->SetBucketPageId(iindex, iref);
+    // Move certain k-v to image page.
+    for (uint32_t i = 0; i < BUCKET_ARRAY_SIZE; i++) {
+      if (!orip->IsOccupied(i)) {
+        break;
+      }
+      if ((Hash(orip->KeyAt(i)) & newmask) != static_cast<uint32_t>(dref)) {
+        orip->RemoveAt(i);
+        imap->Insert(orip->KeyAt(i), orip->ValueAt(i), comparator_);
+      }
+    }
+  }
+  table_latch_.WUnlock();
+  buffer_pool_manager_->UnpinPage(directory_page_id_, true);
+  buffer_pool_manager_->UnpinPage(newpage, true);
+  buffer_pool_manager_->UnpinPage(targetpage, true);
+  return Insert(nullptr, key, value);
 }
 
 /*****************************************************************************
@@ -255,7 +246,6 @@ auto HASH_TABLE_TYPE::SplitInsert(Transaction *transaction, const KeyType &key, 
 template <typename KeyType, typename ValueType, typename KeyComparator>
 auto HASH_TABLE_TYPE::Remove(Transaction *transaction, const KeyType &key, const ValueType &value) -> bool {
   table_latch_.RLock();
-  // Removed maybe merge.
   HashTableDirectoryPage *dp = FetchDirectoryPage();
   Page *pdp = reinterpret_cast<Page *>(dp);
   pdp->RLatch();
@@ -264,66 +254,22 @@ auto HASH_TABLE_TYPE::Remove(Transaction *transaction, const KeyType &key, const
   Page *pop = reinterpret_cast<Page *>(p);
   pop->WLatch();
   if (p->Remove(key, value, comparator_)) {
-    // Check if merge.
-    uint32_t dindex = KeyToDirectoryIndex(key, dp);
-    uint32_t tld = dp->GetLocalDepth(dindex);
-    // Get the image index.
-    uint32_t iindex;
-    bool highbit = static_cast<bool>((dindex >> (tld - 1)) & 0x1);
-    if (highbit) {
-      iindex = dindex & ~(0x1 << (tld - 1));
-    } else {
-      iindex = dindex | (0x1 << (tld - 1));
-    }
-    if (tld > 0 && p->IsEmpty() && dp->GetLocalDepth(iindex) == tld) {
-      // Merge. Acquire write hashtable write lock.
-      pop->WUnlatch();
-      pdp->RUnlatch();
-      table_latch_.RUnlock();
-      // Reacquire the write lock.
-      table_latch_.WLock();
-      pdp->WLatch();
-      dp->DecrLocalDepth(dindex);
-      dp->DecrLocalDepth(iindex);
-      uint32_t lowmask = dp->GetLocalDepthMask(dindex);
-      page_id_t lowpageref = dindex & lowmask;
-      page_id_t predref = dp->GetBucketPageId(dindex);
-      page_id_t preiref = dp->GetBucketPageId(iindex);
-      reftopage_.erase(predref);
-      dp->SetBucketPageId(dindex, lowpageref);
-      dp->SetBucketPageId(iindex, lowpageref);
-      reftopage_[lowpageref] = reftopage_[preiref];
-      if (preiref != lowpageref) {
-        reftopage_.erase(preiref);
-      }
-      // Cast changes to all have the same lowpageref.
-      // Check if can shrink. If all local depth is smaller than global depth, then shrink.
-      bool shrink = true;
-      uint32_t gd = dp->GetGlobalDepth();
-      for (uint32_t i = 0; i < dp->Size(); i++) {
-        if (dp->GetLocalDepth(i) == gd) {
-          shrink = false;
-        }
-        if (static_cast<page_id_t>(i & lowmask) == lowpageref) {
-          dp->SetBucketPageId(i, lowpageref);
-          dp->SetLocalDepth(i, tld - 1);
-        }
-      }
-      if (shrink) {
-        dp->DecrGlobalDepth();
-      }
-      pdp->WUnlatch();
-      table_latch_.WUnlock();
-      buffer_pool_manager_->UnpinPage(directory_page_id_, true);
-      buffer_pool_manager_->UnpinPage(targetpage, true);
-      return true;
-    }
+    // Remove successfully and  merge when necessary.
     pop->WUnlatch();
     pdp->RUnlatch();
     table_latch_.RUnlock();
     buffer_pool_manager_->UnpinPage(directory_page_id_, false);
-    buffer_pool_manager_->UnpinPage(targetpage, true);
+    buffer_pool_manager_->UnpinPage(targetpage, false);
+    Merge(nullptr, key, value);
     return true;
+  } else if (p->IsEmpty()) {
+    pop->WUnlatch();
+    pdp->RUnlatch();
+    table_latch_.RUnlock();
+    buffer_pool_manager_->UnpinPage(directory_page_id_, false);
+    buffer_pool_manager_->UnpinPage(targetpage, false);
+    Merge(nullptr, key, value);
+    return false;
   }
   // fail to remove
   pop->WUnlatch();
@@ -338,7 +284,58 @@ auto HASH_TABLE_TYPE::Remove(Transaction *transaction, const KeyType &key, const
  * MERGE
  *****************************************************************************/
 template <typename KeyType, typename ValueType, typename KeyComparator>
-void HASH_TABLE_TYPE::Merge(Transaction *transaction, const KeyType &key, const ValueType &value) {}
+void HASH_TABLE_TYPE::Merge(Transaction *transaction, const KeyType &key, const ValueType &value) {
+  table_latch_.WLock();
+  HashTableDirectoryPage *dp = FetchDirectoryPage();
+  uint32_t dindex = KeyToDirectoryIndex(key, dp);
+  uint32_t iindex;
+  uint32_t tld = dp->GetLocalDepth(dindex);
+  page_id_t targetpage = KeyToPageId(key, dp);
+  LOG_INFO(" Merge Global Depth: %u Local Depth: %u", dp->GetGlobalDepth(), dp->GetLocalDepth(dindex));
+  HASH_TABLE_BUCKET_TYPE *p = FetchBucketPage(targetpage);
+  // Get the image index.
+  bool highbit = static_cast<bool>((dindex >> (tld - 1)) & 0x1);
+  if (highbit) {
+    iindex = dindex & ~(0x1 << (tld - 1));
+  } else {
+    iindex = dindex | (0x1 << (tld - 1));
+  }
+  if (tld > 0 && p->IsEmpty() && dp->GetLocalDepth(iindex) == tld) {
+    // Should merge.
+    dp->DecrLocalDepth(dindex);
+    dp->DecrLocalDepth(iindex);
+    uint32_t lowmask = dp->GetLocalDepthMask(dindex);
+    page_id_t lowpageref = dindex & lowmask;
+    page_id_t predref = dp->GetBucketPageId(dindex);
+    page_id_t preiref = dp->GetBucketPageId(iindex);
+    reftopage_.erase(predref);
+    dp->SetBucketPageId(dindex, lowpageref);
+    dp->SetBucketPageId(iindex, lowpageref);
+    reftopage_[lowpageref] = reftopage_[preiref];
+    if (preiref != lowpageref) {
+      reftopage_.erase(preiref);
+    }
+    // Cast changes to all have the same lowpageref.
+    // Check if can shrink. If all local depth is smaller than global depth, then shrink.
+    bool shrink = true;
+    uint32_t gd = dp->GetGlobalDepth();
+    for (uint32_t i = 0; i < dp->Size(); i++) {
+      if (dp->GetLocalDepth(i) == gd) {
+        shrink = false;
+      }
+      if (static_cast<page_id_t>(i & lowmask) == lowpageref) {
+        dp->SetBucketPageId(i, lowpageref);
+        dp->SetLocalDepth(i, tld - 1);
+      }
+    }
+    if (shrink) {
+      dp->DecrGlobalDepth();
+    }
+  }
+  table_latch_.WUnlock();
+  buffer_pool_manager_->UnpinPage(directory_page_id_, true);
+  buffer_pool_manager_->UnpinPage(targetpage, true);
+}
 
 /*****************************************************************************
  * GETGLOBALDEPTH - DO NOT TOUCH
