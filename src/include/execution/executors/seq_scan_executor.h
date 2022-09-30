@@ -47,8 +47,18 @@ class SeqScanExecutor : public AbstractExecutor {
   /** @return The output schema for the sequential scan */
   auto GetOutputSchema() -> const Schema * override { return plan_->OutputSchema(); }
 
+  /** For join froze the iterator */
+  void Froze();
+
+  /** Make Output */
+  auto MakeOutput(const Tuple &t) -> Tuple;
+
  private:
   /** The sequential scan plan node to be executed */
   const SeqScanPlanNode *plan_;
+  /** The iterator for scan */
+  TableIterator iter_;
+  /** Table Info */
+  TableInfo *tableinfo_;
 };
 }  // namespace bustub

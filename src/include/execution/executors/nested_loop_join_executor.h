@@ -52,9 +52,26 @@ class NestedLoopJoinExecutor : public AbstractExecutor {
   /** @return The output schema for the insert */
   auto GetOutputSchema() -> const Schema * override { return plan_->OutputSchema(); };
 
+  /** Merge tuple get the output tuple */
+  auto GenerateTuple(const Tuple &left, const Tuple &right) -> Tuple;
+
  private:
   /** The NestedLoopJoin plan node to be executed. */
   const NestedLoopJoinPlanNode *plan_;
+  /** Left child */
+  std::unique_ptr<AbstractExecutor> leftx_;
+  /** Right child */
+  std::unique_ptr<AbstractExecutor> rightx_;
+  /** Left tuple */
+  Tuple ltuple_;
+  /** Right tuple */
+  Tuple rtuple_;
+  /** Left rid */
+  RID lrid_;
+  /** Right rid */
+  RID rrid_;
+  /** Sign for left */
+  bool shouldfroze_ = false;
 };
 
 }  // namespace bustub

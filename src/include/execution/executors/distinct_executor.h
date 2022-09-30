@@ -13,9 +13,12 @@
 #pragma once
 
 #include <memory>
+#include <string>
+#include <unordered_set>
 #include <utility>
 
 #include "execution/executors/abstract_executor.h"
+#include "execution/executors/aggregation_executor.h"
 #include "execution/plans/distinct_plan.h"
 
 namespace bustub {
@@ -53,5 +56,7 @@ class DistinctExecutor : public AbstractExecutor {
   const DistinctPlanNode *plan_;
   /** The child executor from which tuples are obtained */
   std::unique_ptr<AbstractExecutor> child_executor_;
+  /** Distinct map */
+  std::unordered_set<std::string> distinct_{};
 };
 }  // namespace bustub

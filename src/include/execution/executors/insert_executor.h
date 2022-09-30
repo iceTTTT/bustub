@@ -14,6 +14,7 @@
 
 #include <memory>
 #include <utility>
+#include <vector>
 
 #include "execution/executor_context.h"
 #include "execution/executors/abstract_executor.h"
@@ -59,6 +60,14 @@ class InsertExecutor : public AbstractExecutor {
  private:
   /** The insert plan node to be executed*/
   const InsertPlanNode *plan_;
+  /** Subexecutor */
+  std::unique_ptr<AbstractExecutor> subex_;
+  /** Table info */
+  TableInfo *tableinfo_;
+  /** All indexed */
+  std::vector<IndexInfo *> indexes_;
+  /** Raw Start iter */
+  std::vector<std::vector<Value> >::const_iterator riter_;
 };
 
 }  // namespace bustub

@@ -13,6 +13,8 @@
 #pragma once
 
 #include <memory>
+#include <string>
+#include <unordered_map>
 #include <utility>
 
 #include "execution/executor_context.h"
@@ -22,6 +24,7 @@
 
 namespace bustub {
 
+using ITER = std::unordered_multimap<std::string, Tuple>::iterator;
 /**
  * HashJoinExecutor executes a nested-loop JOIN on two tables.
  */
@@ -51,9 +54,32 @@ class HashJoinExecutor : public AbstractExecutor {
   /** @return The output schema for the join */
   auto GetOutputSchema() -> const Schema * override { return plan_->OutputSchema(); };
 
+  /** Generate merge tuple */
+  auto GenerateMergeTuple(const Tuple &left, const Tuple &right) -> Tuple;
+
  private:
-  /** The NestedLoopJoin plan node to be executed. */
+  /** The Hash join plan node to be executed. */
   const HashJoinPlanNode *plan_;
+  /** Left child */
+  std::unique_ptr<AbstractExecutor> leftx_;
+  /** Right child */
+  std::unique_ptr<AbstractExecutor> rightx_;
+  /** Left tuple */
+  Tuple ltuple_;
+  /** Right tuple */
+  Tuple rtuple_;
+  /** Left rid */
+  RID lrid_;
+  /** Right rid */
+  RID rrid_;
+  /** Sign for left */
+  bool shouldfroze_ = false;
+  /** Hash table */
+  std::unordered_multimap<std::string, Tuple> ht_{};
+  /** Iter for probe */
+  ITER iter_;
+  /** Iter for end */
+  std::pair<ITER, ITER> range_;
 };
 
 }  // namespace bustub
