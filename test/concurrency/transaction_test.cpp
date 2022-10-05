@@ -24,14 +24,18 @@
 #include "concurrency/transaction_manager.h"
 #include "execution/execution_engine.h"
 #include "execution/executor_context.h"
+#include "execution/executors/aggregation_executor.h"
 #include "execution/executors/insert_executor.h"
+#include "execution/executors/nested_loop_join_executor.h"
 #include "execution/expressions/aggregate_value_expression.h"
 #include "execution/expressions/column_value_expression.h"
 #include "execution/expressions/comparison_expression.h"
 #include "execution/expressions/constant_value_expression.h"
+#include "execution/plans/delete_plan.h"
 #include "execution/plans/limit_plan.h"
 #include "execution/plans/nested_index_join_plan.h"
 #include "execution/plans/seq_scan_plan.h"
+#include "execution/plans/update_plan.h"
 #include "gtest/gtest.h"
 #include "test_util.h"  // NOLINT
 #include "type/value_factory.h"
@@ -163,7 +167,7 @@ void CheckTxnLockSize(Transaction *txn, size_t shared_size, size_t exclusive_siz
 }
 
 // NOLINTNEXTLINE
-TEST_F(TransactionTest, DISABLED_SimpleInsertRollbackTest) {
+TEST_F(TransactionTest, SimpleInsertRollbackTest) {
   // txn1: INSERT INTO empty_table2 VALUES (200, 20), (201, 21), (202, 22)
   // txn1: abort
   // txn2: SELECT * FROM empty_table2;
@@ -203,7 +207,7 @@ TEST_F(TransactionTest, DISABLED_SimpleInsertRollbackTest) {
 }
 
 // NOLINTNEXTLINE
-TEST_F(TransactionTest, DISABLED_DirtyReadsTest) {
+TEST_F(TransactionTest, DirtyReadsTest) {
   // txn1: INSERT INTO empty_table2 VALUES (200, 20), (201, 21), (202, 22)
   // txn2: SELECT * FROM empty_table2;
   // txn1: abort
@@ -253,5 +257,295 @@ TEST_F(TransactionTest, DISABLED_DirtyReadsTest) {
   GetTxnManager()->Commit(txn2);
   delete txn2;
 }
+// NOLINTNEXTLINE
+TEST_F(TransactionTest, UnrepeatableReadsTest) {
+  // txn0: INSERT INTO empty_table2 VALUES (200, 20), (201, 21), (202, 22)
+  // txn1: SELECT * FROM empty_table2;
+  // txn2: UPDATE empty_table2 SET colA = colA+10
+  // txn2 commit
+  // txn1: SELECT * FROM empty_table2;
 
+  auto txn0 = GetTxnManager()->Begin();
+  auto exec_ctx0 = std::make_unique<ExecutorContext>(txn0, GetCatalog(), GetBPM(), GetTxnManager(), GetLockManager());
+  // Create Values to insert
+  std::vector<Value> val1{ValueFactory::GetIntegerValue(200), ValueFactory::GetIntegerValue(20)};
+  std::vector<Value> val2{ValueFactory::GetIntegerValue(201), ValueFactory::GetIntegerValue(21)};
+  std::vector<Value> val3{ValueFactory::GetIntegerValue(202), ValueFactory::GetIntegerValue(22)};
+  std::vector<std::vector<Value>> raw_vals{val1, val2, val3};
+  // Create insert plan node
+  auto table_info = exec_ctx0->GetCatalog()->GetTable("empty_table2");
+  InsertPlanNode insert_plan{std::move(raw_vals), table_info->oid_};
+  GetExecutionEngine()->Execute(&insert_plan, nullptr, txn0, exec_ctx0.get());
+  GetTxnManager()->Commit(txn0);
+  delete txn0;
+
+  auto txn1 = GetTxnManager()->Begin(nullptr, IsolationLevel::READ_COMMITTED);
+  auto exec_ctx1 = std::make_unique<ExecutorContext>(txn1, GetCatalog(), GetBPM(), GetTxnManager(), GetLockManager());
+  auto &schema = table_info->schema_;
+  auto col_a = MakeColumnValueExpression(schema, 0, "colA");
+  auto col_b = MakeColumnValueExpression(schema, 0, "colB");
+  auto out_schema = MakeOutputSchema({{"colA", col_a}, {"colB", col_b}});
+  SeqScanPlanNode scan_plan{out_schema, nullptr, table_info->oid_};
+
+  std::vector<Tuple> result_set;
+  GetExecutionEngine()->Execute(&scan_plan, &result_set, txn1, exec_ctx1.get());
+  // First value
+  ASSERT_EQ(result_set[0].GetValue(out_schema, out_schema->GetColIdx("colA")).GetAs<int32_t>(), 200);
+  // Second value
+  ASSERT_EQ(result_set[1].GetValue(out_schema, out_schema->GetColIdx("colA")).GetAs<int32_t>(), 201);
+  // Third value
+  ASSERT_EQ(result_set[2].GetValue(out_schema, out_schema->GetColIdx("colA")).GetAs<int32_t>(), 202);
+
+  auto txn2 = GetTxnManager()->Begin(nullptr, IsolationLevel::READ_COMMITTED);
+  auto exec_ctx2 = std::make_unique<ExecutorContext>(txn2, GetCatalog(), GetBPM(), GetTxnManager(), GetLockManager());
+  std::unordered_map<uint32_t, UpdateInfo> update_attrs;
+  update_attrs.insert(std::make_pair(0, UpdateInfo(UpdateType::Add, 10)));
+  std::unique_ptr<AbstractPlanNode> update_plan;
+  { update_plan = std::make_unique<UpdatePlanNode>(&scan_plan, table_info->oid_, update_attrs); }
+
+  result_set.clear();
+  GetExecutionEngine()->Execute(update_plan.get(), &result_set, txn2, exec_ctx2.get());
+
+  GetTxnManager()->Commit(txn2);
+  delete txn2;
+
+  result_set.clear();
+  GetExecutionEngine()->Execute(&scan_plan, &result_set, txn1, exec_ctx1.get());
+
+  // First value
+  ASSERT_EQ(result_set[0].GetValue(out_schema, out_schema->GetColIdx("colA")).GetAs<int32_t>(), 210);
+  // Second value
+  ASSERT_EQ(result_set[1].GetValue(out_schema, out_schema->GetColIdx("colA")).GetAs<int32_t>(), 211);
+  // Third value
+  ASSERT_EQ(result_set[2].GetValue(out_schema, out_schema->GetColIdx("colA")).GetAs<int32_t>(), 212);
+
+  GetTxnManager()->Commit(txn1);
+  delete txn1;
+}
+// NOLINTNEXTLINE
+TEST_F(TransactionTest, RepeatableReadsTest) {
+  // txn0: INSERT INTO empty_table2 VALUES (200, 20), (201, 21), (202, 22)
+  // txn1: SELECT * FROM empty_table2;
+  // txn2: UPDATE empty_table2 SET colA = colA+10
+  // txn1: SELECT * FROM empty_table2;
+
+  auto txn0 = GetTxnManager()->Begin();
+  auto exec_ctx0 = std::make_unique<ExecutorContext>(txn0, GetCatalog(), GetBPM(), GetTxnManager(), GetLockManager());
+  // Create Values to insert
+  std::vector<Value> val1{ValueFactory::GetIntegerValue(200), ValueFactory::GetIntegerValue(20)};
+  std::vector<Value> val2{ValueFactory::GetIntegerValue(201), ValueFactory::GetIntegerValue(21)};
+  std::vector<Value> val3{ValueFactory::GetIntegerValue(202), ValueFactory::GetIntegerValue(22)};
+  std::vector<std::vector<Value>> raw_vals{val1, val2, val3};
+  // Create insert plan node
+  auto table_info = exec_ctx0->GetCatalog()->GetTable("empty_table2");
+  InsertPlanNode insert_plan{std::move(raw_vals), table_info->oid_};
+  GetExecutionEngine()->Execute(&insert_plan, nullptr, txn0, exec_ctx0.get());
+  GetTxnManager()->Commit(txn0);
+  delete txn0;
+
+  auto txn1 = GetTxnManager()->Begin();
+  auto exec_ctx1 = std::make_unique<ExecutorContext>(txn1, GetCatalog(), GetBPM(), GetTxnManager(), GetLockManager());
+  auto txn2 = GetTxnManager()->Begin();
+  auto exec_ctx2 = std::make_unique<ExecutorContext>(txn2, GetCatalog(), GetBPM(), GetTxnManager(), GetLockManager());
+
+  auto &schema = table_info->schema_;
+  auto col_a = MakeColumnValueExpression(schema, 0, "colA");
+  auto col_b = MakeColumnValueExpression(schema, 0, "colB");
+  auto out_schema = MakeOutputSchema({{"colA", col_a}, {"colB", col_b}});
+  SeqScanPlanNode scan_plan{out_schema, nullptr, table_info->oid_};
+
+  std::unordered_map<uint32_t, UpdateInfo> update_attrs;
+  update_attrs.insert(std::make_pair(0, UpdateInfo(UpdateType::Add, 10)));
+  std::unique_ptr<AbstractPlanNode> update_plan;
+  { update_plan = std::make_unique<UpdatePlanNode>(&scan_plan, table_info->oid_, update_attrs); }
+
+  std::thread t0([&] {
+    std::vector<Tuple> result_set;
+    GetExecutionEngine()->Execute(&scan_plan, &result_set, txn1, exec_ctx1.get());
+
+    // First value
+    ASSERT_EQ(result_set[0].GetValue(out_schema, out_schema->GetColIdx("colA")).GetAs<int32_t>(), 200);
+    // Second value
+    ASSERT_EQ(result_set[1].GetValue(out_schema, out_schema->GetColIdx("colA")).GetAs<int32_t>(), 201);
+    // Third value
+    ASSERT_EQ(result_set[2].GetValue(out_schema, out_schema->GetColIdx("colA")).GetAs<int32_t>(), 202);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    result_set.clear();
+    GetExecutionEngine()->Execute(&scan_plan, &result_set, txn1, exec_ctx1.get());
+
+    // First value
+    ASSERT_EQ(result_set[0].GetValue(out_schema, out_schema->GetColIdx("colA")).GetAs<int32_t>(), 200);
+    // Second value
+    ASSERT_EQ(result_set[1].GetValue(out_schema, out_schema->GetColIdx("colA")).GetAs<int32_t>(), 201);
+    // Third value
+    ASSERT_EQ(result_set[2].GetValue(out_schema, out_schema->GetColIdx("colA")).GetAs<int32_t>(), 202);
+
+    GetTxnManager()->Commit(txn1);
+  });
+
+  std::thread t1([&] {
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    GetExecutionEngine()->Execute(update_plan.get(), nullptr, txn2, exec_ctx2.get());
+
+    std::vector<Tuple> result_set;
+    GetExecutionEngine()->Execute(&scan_plan, &result_set, txn2, exec_ctx2.get());
+
+    // First value
+    ASSERT_EQ(result_set[0].GetValue(out_schema, out_schema->GetColIdx("colA")).GetAs<int32_t>(), 210);
+    // Second value
+    ASSERT_EQ(result_set[1].GetValue(out_schema, out_schema->GetColIdx("colA")).GetAs<int32_t>(), 211);
+    // Third value
+    ASSERT_EQ(result_set[2].GetValue(out_schema, out_schema->GetColIdx("colA")).GetAs<int32_t>(), 212);
+
+    GetTxnManager()->Commit(txn2);
+  });
+
+  t0.join();
+  t1.join();
+  delete txn1;
+  delete txn2;
+}
+
+// NOLINTNEXTLINE
+TEST_F(TransactionTest, IntegratedTest) {
+  //  txn1 ->        scan -> join -> aggregate
+  //  txn2 ->    delete one tuple -> commit
+  //  txn3 -> scan
+
+  auto txn1 = GetTxnManager()->Begin();
+  auto exec_ctx1 = std::make_unique<ExecutorContext>(txn1, GetCatalog(), GetBPM(), GetTxnManager(), GetLockManager());
+  auto txn2 = GetTxnManager()->Begin();
+  auto exec_ctx2 = std::make_unique<ExecutorContext>(txn2, GetCatalog(), GetBPM(), GetTxnManager(), GetLockManager());
+  auto txn3 = GetTxnManager()->Begin();
+  auto exec_ctx3 = std::make_unique<ExecutorContext>(txn3, GetCatalog(), GetBPM(), GetTxnManager(), GetLockManager());
+
+  auto table_info = GetExecutorContext()->GetCatalog()->GetTable("test_1");
+  auto table_info2 = GetExecutorContext()->GetCatalog()->GetTable("test_2");
+
+  std::unique_ptr<AbstractPlanNode> scan_plan1;
+  const Schema *out_schema1;
+  {
+    auto &schema = table_info->schema_;
+    auto col_a = MakeColumnValueExpression(schema, 0, "colA");
+    auto col_b = MakeColumnValueExpression(schema, 0, "colB");
+    out_schema1 = MakeOutputSchema({{"colA", col_a}, {"colB", col_b}});
+    scan_plan1 = std::make_unique<SeqScanPlanNode>(out_schema1, nullptr, table_info->oid_);
+  }
+  std::unique_ptr<AbstractPlanNode> scan_plan2;
+  const Schema *out_schema2;
+  {
+    auto &schema = table_info2->schema_;
+    auto col1 = MakeColumnValueExpression(schema, 0, "col1");
+    auto col2 = MakeColumnValueExpression(schema, 0, "col2");
+    out_schema2 = MakeOutputSchema({{"col1", col1}, {"col2", col2}});
+    scan_plan2 = std::make_unique<SeqScanPlanNode>(out_schema2, nullptr, table_info2->oid_);
+  }
+  std::unique_ptr<NestedLoopJoinPlanNode> join_plan;
+  const Schema *out_final;
+  {
+    // colA and colB have a tuple index of 0 because they are the left side of the join
+    auto col_a = MakeColumnValueExpression(*out_schema1, 0, "colA");
+    auto col_b = MakeColumnValueExpression(*out_schema1, 0, "colB");
+    // col1 and col2 have a tuple index of 1 because they are the right side of the join
+    auto col1 = MakeColumnValueExpression(*out_schema2, 1, "col1");
+    auto col2 = MakeColumnValueExpression(*out_schema2, 1, "col2");
+    std::vector<const AbstractExpression *> left_keys{col_a};
+    std::vector<const AbstractExpression *> right_keys{col1};
+    auto predicate = MakeComparisonExpression(col_a, col1, ComparisonType::Equal);
+    out_final = MakeOutputSchema({{"colA", col_a}, {"colB", col_b}, {"col1", col1}, {"col2", col2}});
+    join_plan = std::make_unique<NestedLoopJoinPlanNode>(
+        out_final, std::vector<const AbstractPlanNode *>{scan_plan1.get(), scan_plan2.get()}, predicate);
+  }
+
+  std::unique_ptr<AbstractPlanNode> agg_plan;
+  const Schema *agg_schema;
+  {
+    const AbstractExpression *col_a = MakeColumnValueExpression(*out_final, 0, "colA");
+    const AbstractExpression *count_a = MakeAggregateValueExpression(false, 0);
+    const AbstractExpression *sum_a = MakeAggregateValueExpression(false, 1);
+    const AbstractExpression *min_a = MakeAggregateValueExpression(false, 2);
+    const AbstractExpression *max_a = MakeAggregateValueExpression(false, 3);
+
+    agg_schema = MakeOutputSchema({{"countA", count_a}, {"sumA", sum_a}, {"minA", min_a}, {"maxA", max_a}});
+    agg_plan = std::make_unique<AggregationPlanNode>(
+        agg_schema, join_plan.get(), nullptr, std::vector<const AbstractExpression *>{},
+        std::vector<const AbstractExpression *>{col_a, col_a, col_a, col_a},
+        std::vector<AggregationType>{AggregationType::CountAggregate, AggregationType::SumAggregate,
+                                     AggregationType::MinAggregate, AggregationType::MaxAggregate});
+  }
+
+  std::unique_ptr<AbstractPlanNode> scan_delete_plan;
+  const Schema *out_delete_schema;
+  {
+    auto &schema = table_info->schema_;
+    auto col_a = MakeColumnValueExpression(schema, 0, "colA");
+    auto const1 = MakeConstantValueExpression(ValueFactory::GetIntegerValue(1));
+    auto predicate = MakeComparisonExpression(col_a, const1, ComparisonType::Equal);
+    out_delete_schema = MakeOutputSchema({{"colA", col_a}});
+    scan_delete_plan = std::make_unique<SeqScanPlanNode>(out_delete_schema, predicate, table_info->oid_);
+  }
+  std::unique_ptr<AbstractPlanNode> delete_plan;
+  { delete_plan = std::make_unique<DeletePlanNode>(scan_delete_plan.get(), table_info->oid_); }
+
+  std::unordered_map<uint32_t, UpdateInfo> update_attrs;
+  update_attrs.insert(std::make_pair(0, UpdateInfo(UpdateType::Add, 10)));
+  std::unique_ptr<AbstractPlanNode> update_plan;
+  { update_plan = std::make_unique<UpdatePlanNode>(scan_plan1.get(), table_info->oid_, update_attrs); }
+
+  std::promise<void> t2done;
+  std::shared_future<void> t2_future(t2done.get_future());
+
+  std::promise<void> t1done;
+  std::shared_future<void> t1_future(t1done.get_future());
+
+  std::thread t1([&] {
+    t2_future.wait();
+    std::vector<Tuple> result_set1;
+    GetExecutionEngine()->Execute(agg_plan.get(), &result_set1, txn1, exec_ctx1.get());
+    t1done.set_value();
+    ASSERT_EQ(result_set1.size(), 1);
+    auto tuple = result_set1[0];
+    auto count_a_val = tuple.GetValue(agg_schema, agg_schema->GetColIdx("countA")).GetAs<int32_t>();
+    auto sum_a_val = tuple.GetValue(agg_schema, agg_schema->GetColIdx("sumA")).GetAs<int32_t>();
+    auto min_a_val = tuple.GetValue(agg_schema, agg_schema->GetColIdx("minA")).GetAs<int32_t>();
+    auto max_a_val = tuple.GetValue(agg_schema, agg_schema->GetColIdx("maxA")).GetAs<int32_t>();
+    // Should count all tuples
+    ASSERT_EQ(count_a_val, TEST2_SIZE - 1);
+    // Should sum from 0 to TEST2_SIZE - 1 except for 1
+    ASSERT_EQ(sum_a_val, TEST2_SIZE * (TEST2_SIZE - 1) / 2 - 1);
+    // Minimum should be 0
+    ASSERT_EQ(min_a_val, 0);
+    // Maximum should be TEST2_SIZE - 1
+    ASSERT_EQ(max_a_val, TEST2_SIZE - 1);
+    GetTxnManager()->Commit(txn1);
+  });
+
+  std::thread t2([&] {
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    GetExecutionEngine()->Execute(delete_plan.get(), nullptr, txn2, exec_ctx2.get());
+    t2done.set_value();
+    t1_future.wait();
+    GetTxnManager()->Commit(txn2);
+  });
+
+  std::thread t3([&] {
+    std::vector<Tuple> result_set;
+    GetExecutionEngine()->Execute(scan_plan1.get(), nullptr, txn3, exec_ctx3.get());
+
+    int val = 0;
+    for (const auto &res_tuple : result_set) {
+      ASSERT_EQ(res_tuple.GetValue(out_schema1, out_schema1->GetColIdx("colA")).GetAs<int32_t>(), val++);
+    }
+    GetTxnManager()->Commit(txn3);
+  });
+
+  t1.join();
+  t2.join();
+  t3.join();
+  delete txn1;
+  delete txn2;
+  delete txn3;
+}
 }  // namespace bustub

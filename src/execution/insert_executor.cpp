@@ -38,10 +38,15 @@ auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
       *tuple = Tuple(*riter_++, &tableinfo_->schema_);
       if (tableinfo_->table_->InsertTuple(*tuple, rid, GetExecutorContext()->GetTransaction())) {
         // Update index after success.
+        if (!GetExecutorContext()->GetLockManager()->LockExclusive(GetExecutorContext()->GetTransaction(), *rid)) {
+          return false;
+        }
         for (auto *indexinfo : indexes_) {
           indexinfo->index_->InsertEntry(tuple->KeyFromTuple(tableinfo_->schema_, *indexinfo->index_->GetKeySchema(),
                                                              indexinfo->index_->GetKeyAttrs()),
                                          *rid, GetExecutorContext()->GetTransaction());
+          GetExecutorContext()->GetTransaction()->GetIndexWriteSet()->emplace_back(
+              *rid, tableinfo_->oid_, WType::INSERT, *tuple, indexinfo->index_oid_, GetExecutorContext()->GetCatalog());
         }
       }
     }
@@ -50,10 +55,15 @@ auto InsertExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
   // Sub insert.
   while (subex_->Next(tuple, rid)) {
     if (tableinfo_->table_->InsertTuple(*tuple, rid, GetExecutorContext()->GetTransaction())) {
+      if (!GetExecutorContext()->GetLockManager()->LockExclusive(GetExecutorContext()->GetTransaction(), *rid)) {
+        return false;
+      }
       for (auto *indexinfo : indexes_) {
         indexinfo->index_->InsertEntry(tuple->KeyFromTuple(tableinfo_->schema_, *indexinfo->index_->GetKeySchema(),
                                                            indexinfo->index_->GetKeyAttrs()),
                                        *rid, GetExecutorContext()->GetTransaction());
+        GetExecutorContext()->GetTransaction()->GetIndexWriteSet()->emplace_back(
+            *rid, tableinfo_->oid_, WType::INSERT, *tuple, indexinfo->index_oid_, GetExecutorContext()->GetCatalog());
       }
     }
   }

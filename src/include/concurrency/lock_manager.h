@@ -33,6 +33,7 @@ class TransactionManager;
  * LockManager handles transactions asking for locks on records.
  */
 class LockManager {
+ public:
   enum class LockMode { SHARED, EXCLUSIVE };
 
   class LockRequest {
@@ -51,6 +52,7 @@ class LockManager {
     std::condition_variable cv_;
     // txn_id of an upgrading transaction (if any)
     txn_id_t upgrading_ = INVALID_TXN_ID;
+    //
   };
 
  public:
@@ -104,10 +106,14 @@ class LockManager {
    */
   auto Unlock(Transaction *txn, const RID &rid) -> bool;
 
+  auto GrantS(const RID &rid, txn_id_t txn_id) -> bool;
+
+  auto GrantX(const RID &rid, txn_id_t txn_id) -> bool;
+
  private:
   std::mutex latch_;
 
-  /** Lock table for lock requests. */
+  /** Lock table for lock requests. Called while hold the latch.*/
   std::unordered_map<RID, LockRequestQueue> lock_table_;
 };
 

@@ -56,10 +56,11 @@ auto SeqScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
     if (plan_->GetPredicate() != nullptr) {
       if (plan_->GetPredicate()->Evaluate(&(*i), &tableinfo_->schema_).GetAs<bool>()) {
         *rid = i->GetRid();
+        auto pre = i;
         *tuple = MakeOutput(*i++);
         iter_ = i;
-        return !(txn->GetIsolationLevel() == IsolationLevel::READ_COMMITTED && !txn->IsExclusiveLocked(i->GetRid()) &&
-                 !GetExecutorContext()->GetLockManager()->Unlock(txn, i->GetRid()));
+        return !(txn->GetIsolationLevel() == IsolationLevel::READ_COMMITTED && !txn->IsExclusiveLocked(pre->GetRid()) &&
+                 !GetExecutorContext()->GetLockManager()->Unlock(txn, pre->GetRid()));
       }
       if (txn->GetIsolationLevel() == IsolationLevel::READ_COMMITTED && !txn->IsExclusiveLocked(i->GetRid()) &&
           !GetExecutorContext()->GetLockManager()->Unlock(txn, i->GetRid())) {
@@ -68,10 +69,11 @@ auto SeqScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
       continue;
     }
     *rid = i->GetRid();
+    auto pre = i;
     *tuple = MakeOutput(*i++);
     iter_ = i;
-    return !(txn->GetIsolationLevel() == IsolationLevel::READ_COMMITTED && !txn->IsExclusiveLocked(i->GetRid()) &&
-             !GetExecutorContext()->GetLockManager()->Unlock(txn, i->GetRid()));
+    return !(txn->GetIsolationLevel() == IsolationLevel::READ_COMMITTED && !txn->IsExclusiveLocked(pre->GetRid()) &&
+             !GetExecutorContext()->GetLockManager()->Unlock(txn, pre->GetRid()));
   }
   return false;
 }

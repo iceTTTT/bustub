@@ -27,12 +27,30 @@ void UpdateExecutor::Init() {
 
 auto UpdateExecutor::Next([[maybe_unused]] Tuple *tuple, RID *rid) -> bool {
   while (child_executor_->Next(tuple, rid)) {
+    if (GetExecutorContext()->GetTransaction()->GetIsolationLevel() == IsolationLevel::REPEATABLE_READ &&
+        GetExecutorContext()->GetTransaction()->IsSharedLocked(*rid)) {
+      if (!GetExecutorContext()->GetLockManager()->LockUpgrade(GetExecutorContext()->GetTransaction(), *rid)) {
+        return false;
+      }
+    } else {
+      if (!GetExecutorContext()->GetLockManager()->LockExclusive(GetExecutorContext()->GetTransaction(), *rid)) {
+        return false;
+      }
+    }
+    Tuple temp;
+    if (!table_info_->table_->GetTuple(*rid, &temp, GetExecutorContext()->GetTransaction())) {
+      continue;
+    }
     Tuple upd = GenerateUpdatedTuple(*tuple);
     if (table_info_->table_->UpdateTuple(upd, *rid, GetExecutorContext()->GetTransaction())) {
       for (auto *indexinfo : indexes_) {
         indexinfo->index_->InsertEntry(tuple->KeyFromTuple(table_info_->schema_, *indexinfo->index_->GetKeySchema(),
                                                            indexinfo->index_->GetKeyAttrs()),
                                        *rid, GetExecutorContext()->GetTransaction());
+        IndexWriteRecord rec(*rid, table_info_->oid_, WType::UPDATE, upd, indexinfo->index_oid_,
+                             GetExecutorContext()->GetCatalog());
+        rec.old_tuple_ = *tuple;
+        GetExecutorContext()->GetTransaction()->GetIndexWriteSet()->emplace_back(std::move(rec));
       }
     }
   }
