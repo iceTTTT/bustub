@@ -32,19 +32,46 @@ void SeqScanExecutor::Init() {
 
 auto SeqScanExecutor::Next(Tuple *tuple, RID *rid) -> bool {
   for (TableIterator i = iter_; i != tableinfo_->table_->End(); i++) {
+    auto txn = GetExecutorContext()->GetTransaction();
+    switch (txn->GetIsolationLevel()) {
+      case IsolationLevel::REPEATABLE_READ:
+      case IsolationLevel::READ_COMMITTED: {
+        if (!GetExecutorContext()->GetLockManager()->LockShared(txn, i->GetRid())) {
+          return false;
+        }
+        break;
+      }
+      case IsolationLevel::READ_UNCOMMITTED: {
+        break;
+      }
+    }
+    Tuple temp;
+    if (!tableinfo_->table_->GetTuple(i->GetRid(), &temp, txn)) {
+      if (txn->GetIsolationLevel() == IsolationLevel::READ_COMMITTED && !txn->IsExclusiveLocked(i->GetRid()) &&
+          !GetExecutorContext()->GetLockManager()->Unlock(txn, i->GetRid())) {
+        return false;
+      }
+      continue;
+    }
     if (plan_->GetPredicate() != nullptr) {
       if (plan_->GetPredicate()->Evaluate(&(*i), &tableinfo_->schema_).GetAs<bool>()) {
         *rid = i->GetRid();
         *tuple = MakeOutput(*i++);
         iter_ = i;
-        return true;
+        return !(txn->GetIsolationLevel() == IsolationLevel::READ_COMMITTED && !txn->IsExclusiveLocked(i->GetRid()) &&
+                 !GetExecutorContext()->GetLockManager()->Unlock(txn, i->GetRid()));
+      }
+      if (txn->GetIsolationLevel() == IsolationLevel::READ_COMMITTED && !txn->IsExclusiveLocked(i->GetRid()) &&
+          !GetExecutorContext()->GetLockManager()->Unlock(txn, i->GetRid())) {
+        return false;
       }
       continue;
     }
     *rid = i->GetRid();
     *tuple = MakeOutput(*i++);
     iter_ = i;
-    return true;
+    return !(txn->GetIsolationLevel() == IsolationLevel::READ_COMMITTED && !txn->IsExclusiveLocked(i->GetRid()) &&
+             !GetExecutorContext()->GetLockManager()->Unlock(txn, i->GetRid()));
   }
   return false;
 }
