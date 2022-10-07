@@ -1,4 +1,4 @@
-zip project3-submission.zip \
+zip project4-submission.zip \
 src/include/buffer/lru_replacer.h \
 src/buffer/lru_replacer.cpp \
 src/include/buffer/buffer_pool_manager_instance.h \
@@ -28,5 +28,9 @@ src/execution/hash_join_executor.cpp \
 src/execution/aggregation_executor.cpp \
 src/execution/limit_executor.cpp \
 src/execution/distinct_executor.cpp \
-src/include/storage/page/tmp_tuple_page.h
+src/include/storage/page/tmp_tuple_page.h \
+src/concurrency/lock_manager.cpp \
+src/include/concurrency/lock_manager.h \
+src/include/buffer/parallel_buffer_pool_manager.h \
+src/buffer/parallel_buffer_pool_manager.cpp
 
